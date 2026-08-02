@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="sk">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+    <meta name="theme-color" content="#047857" />
+    <meta name="description" content="Zber a vizualizácia dát o mobiliári a zeleni sídliska Vlčince" />
+
+    <!-- Favicon -->
+    <link rel="icon" href="%BASE_URL%favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="%BASE_URL%icons/favicon-32.png" />
+
+    <!-- PWA manifest (ikony + install konfigurácia) -->
+    <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
+
+    <!-- iOS "Pridať na plochu" - Safari nečíta web manifest ikony, potrebuje vlastné tagy -->
+    <link rel="apple-touch-icon" href="%BASE_URL%icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Vlčince Pasport" />
+
+    <title>Vlčince – Pasport mobiliáru a zelene</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

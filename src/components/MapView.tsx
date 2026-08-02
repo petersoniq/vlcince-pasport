@@ -1,0 +1,675 @@
+import { useEffect, useMemo, useState } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import MarkerClusterGroup from 'react-leaflet-cluster';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import {
+  Trash2,
+  Pencil,
+  Mail,
+  Phone,
+  Loader2,
+  LocateFixed,
+  ShieldCheck,
+  Info,
+  Download,
+  Check,
+  X,
+  Move,
+  History,
+  Camera,
+  ChevronDown,
+} from 'lucide-react';
+import type { AssetRecord, AssetCategory, AssetCondition, StatusHistoryEntry } from '../types';
+import { CATEGORY_LABELS, CONDITION_LABELS, CONDITION_COLORS } from '../types';
+import { useAuth } from '../lib/auth';
+import { supabase } from '../lib/supabase';
+import CommentsPanel from './CommentsPanel';
+
+// Stred sídliska Vlčince, Žilina - použije sa len ako záloha, ak sa nepodarí zistiť polohu
+const VLCINCE_CENTER: [number, number] = [49.2233, 18.7482];
+const DEFAULT_ZOOM = 16;
+
+const CATEGORIES = Object.keys(CATEGORY_LABELS) as AssetCategory[];
+const CONDITIONS = Object.keys(CONDITION_LABELS) as AssetCondition[];
+
+// Jednoduché emoji symboly podľa kategórie - žiadna ďalšia závislosť, funguje offline
+const CATEGORY_EMOJI: Record<AssetCategory, string> = {
+  lavicka: '🪑',
+  kos: '🗑️',
+  zelen_strom: '🌳',
+  zelen_kry: '🌿',
+  zelen_trvalka: '🌱',
+  detsky_prvok: '🎠',
+  sportovy_prvok: '🏋️',
+  osvetlenie: '💡',
+  ine: '📍',
+};
+
+function buildIcon(category: AssetCategory, condition: AssetCondition, editing: boolean) {
+  const color = CONDITION_COLORS[condition];
+  const emoji = CATEGORY_EMOJI[category];
+  const ring = editing ? 'outline: 3px solid #2563eb; outline-offset: 2px;' : '';
+  return L.divIcon({
+    html: `<div style="
+      width: 30px; height: 30px; border-radius: 9999px;
+      background: ${color}; border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+      display: flex; align-items: center; justify-content: center; font-size: 15px; ${ring}
+    ">${emoji}</div>`,
+    className: '',
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+    popupAnchor: [0, -15],
+  });
+}
+
+interface EditDraft {
+  category: AssetCategory;
+  subtype: string;
+  condition: AssetCondition;
+  note: string;
+  position: L.LatLng | null; // null = poloha nezmenená
+  photo: File | null; // nová fotka na nahratie (null = nezmenená)
+  photoPreview: string | null;
+}
+
+interface Props {
+  assets: AssetRecord[];
+  onAssetDeleted?: (id: string) => void;
+  onAssetUpdated?: (asset: AssetRecord) => void;
+}
+
+/** Rozbaľovací panel s históriou zmien stavu záznamu - dáta sa načítajú lenivo (až po kliknutí). */
+function HistoryPanel({ assetId }: { assetId: string }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [entries, setEntries] = useState<StatusHistoryEntry[] | null>(null);
+
+  const handleToggle = async () => {
+    const next = !open;
+    setOpen(next);
+    if (next && entries === null) {
+      setLoading(true);
+      const { data } = await supabase
+        .from('asset_status_history')
+        .select('id, asset_id, old_condition, new_condition, changed_at, changed_by')
+        .eq('asset_id', assetId)
+        .order('changed_at', { ascending: false });
+      setEntries((data as StatusHistoryEntry[]) ?? []);
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 border-t border-slate-100 pt-2">
+      <button
+        onClick={handleToggle}
+        className="flex w-full items-center justify-between text-xs font-medium text-slate-500 hover:text-slate-700"
+      >
+        <span className="flex items-center gap-1">
+          <History className="h-3 w-3" /> História zmien
+        </span>
+        <ChevronDown className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="mt-1.5 flex flex-col gap-1">
+          {loading && <Loader2 className="h-3 w-3 animate-spin text-slate-400" />}
+          {!loading && entries?.length === 0 && (
+            <p className="text-[11px] text-slate-400">Žiadna história.</p>
+          )}
+          {!loading &&
+            entries?.map((h) => (
+              <div key={h.id} className="text-[11px] text-slate-500">
+                {h.old_condition ? (
+                  <>
+                    <span style={{ color: CONDITION_COLORS[h.old_condition] }}>
+                      {CONDITION_LABELS[h.old_condition]}
+                    </span>
+                    {' → '}
+                  </>
+                ) : (
+                  'Vytvorené ako '
+                )}
+                <span style={{ color: CONDITION_COLORS[h.new_condition] }} className="font-medium">
+                  {CONDITION_LABELS[h.new_condition]}
+                </span>
+                <span className="text-slate-400"> · {new Date(h.changed_at).toLocaleString('sk-SK')}</span>
+              </div>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AssetPopupContent({
+  asset,
+  onAssetDeleted,
+  onAssetUpdated,
+  isEditing,
+  draft,
+  onStartEdit,
+  onChangeDraft,
+  onCancelEdit,
+}: {
+  asset: AssetRecord;
+  onAssetDeleted?: (id: string) => void;
+  onAssetUpdated?: (asset: AssetRecord) => void;
+  isEditing: boolean;
+  draft: EditDraft | null;
+  onStartEdit: () => void;
+  onChangeDraft: (draft: EditDraft) => void;
+  onCancelEdit: () => void;
+}) {
+  const { user, isAdmin } = useAuth();
+  const [deleting, setDeleting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const canManage = !!user && (user.id === asset.user_id || isAdmin);
+
+  const handleDelete = async () => {
+    if (!confirm('Naozaj chceš tento záznam natrvalo odstrániť?')) return;
+    setDeleting(true);
+    const { error } = await supabase.from('vlcince_assets').delete().eq('id', asset.id);
+    setDeleting(false);
+    if (error) {
+      alert(`Vymazanie zlyhalo: ${error.message}`);
+      return;
+    }
+    onAssetDeleted?.(asset.id);
+  };
+
+  const handleSave = async () => {
+    if (!draft) return;
+    setSaving(true);
+
+    let photoUrl: string | undefined;
+    if (draft.photo) {
+      const path = `${asset.id}.jpg`;
+      const { error: uploadError } = await supabase.storage
+        .from('asset-photos')
+        .upload(path, draft.photo, { contentType: draft.photo.type, upsert: true });
+      if (uploadError) {
+        setSaving(false);
+        alert(`Nahratie fotky zlyhalo: ${uploadError.message}`);
+        return;
+      }
+      const { data: pub } = supabase.storage.from('asset-photos').getPublicUrl(path);
+      photoUrl = `${pub.publicUrl}?t=${Date.now()}`;
+    }
+
+    const updatePayload: Record<string, unknown> = {
+      category: draft.category,
+      subtype: draft.subtype || null,
+      condition: draft.condition,
+      note: draft.note || null,
+    };
+    if (draft.position) {
+      updatePayload.latitude = draft.position.lat;
+      updatePayload.longitude = draft.position.lng;
+    }
+    if (photoUrl) {
+      updatePayload.photo_url = photoUrl;
+    }
+
+    const { data, error } = await supabase
+      .from('vlcince_assets')
+      .update(updatePayload)
+      .eq('id', asset.id)
+      .select(
+        'id, created_at, category, subtype, condition, latitude, longitude, note, photo_url, user_id, author:profiles(display_name, contact_email, contact_phone, show_contact, role)'
+      )
+      .single();
+
+    setSaving(false);
+    if (error) {
+      alert(`Uloženie zlyhalo: ${error.message}`);
+      return;
+    }
+    if (data) onAssetUpdated?.(data as unknown as AssetRecord);
+    onCancelEdit();
+  };
+
+  const hasUnsavedChanges = (): boolean => {
+    if (!draft) return false;
+    return (
+      draft.category !== asset.category ||
+      draft.subtype !== (asset.subtype ?? '') ||
+      draft.condition !== asset.condition ||
+      draft.note !== (asset.note ?? '') ||
+      draft.position !== null ||
+      draft.photo !== null
+    );
+  };
+
+  const handleCancelClick = () => {
+    if (hasUnsavedChanges() && !confirm('Zahodiť neuložené zmeny?')) return;
+    onCancelEdit();
+  };
+
+  const authorRoleLabel = asset.author?.role === 'admin' ? 'Administrátor' : 'Člen komunity';
+
+  if (isEditing && draft) {
+    return (
+      <div className="flex w-56 flex-col gap-2 text-sm">
+        <p className="flex items-center gap-1.5 rounded-md bg-blue-50 px-2 py-1.5 text-xs text-blue-700">
+          <Move className="h-3.5 w-3.5 shrink-0" />
+          Potiahni značku na mape pre zmenu polohy
+        </p>
+
+        <div>
+          <label className="mb-0.5 block text-xs font-medium text-slate-600">Kategória</label>
+          <select
+            value={draft.category}
+            onChange={(e) => onChangeDraft({ ...draft, category: e.target.value as AssetCategory })}
+            className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs"
+          >
+            {CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {CATEGORY_LABELS[c]}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="mb-0.5 block text-xs font-medium text-slate-600">Podtyp</label>
+          <input
+            type="text"
+            value={draft.subtype}
+            onChange={(e) => onChangeDraft({ ...draft, subtype: e.target.value })}
+            className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs"
+          />
+        </div>
+
+        <div>
+          <label className="mb-0.5 block text-xs font-medium text-slate-600">Stav</label>
+          <select
+            value={draft.condition}
+            onChange={(e) => onChangeDraft({ ...draft, condition: e.target.value as AssetCondition })}
+            className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs"
+          >
+            {CONDITIONS.map((c) => (
+              <option key={c} value={c}>
+                {CONDITION_LABELS[c]}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="mb-0.5 block text-xs font-medium text-slate-600">Poznámka</label>
+          <textarea
+            value={draft.note}
+            onChange={(e) => onChangeDraft({ ...draft, note: e.target.value })}
+            rows={2}
+            className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs"
+          />
+        </div>
+
+        <div>
+          <label className="mb-0.5 block text-xs font-medium text-slate-600">Fotografia</label>
+          <label className="flex cursor-pointer items-center justify-center gap-1.5 rounded-md border border-dashed border-slate-300 px-2 py-2 text-xs text-slate-500 hover:border-blue-400">
+            <Camera className="h-3.5 w-3.5" />
+            {draft.photoPreview ? 'Zmeniť fotku' : 'Nahrať novú fotku'}
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                onChangeDraft({ ...draft, photo: file, photoPreview: URL.createObjectURL(file) });
+              }}
+            />
+          </label>
+          {(draft.photoPreview || asset.photo_url) && (
+            <img
+              src={draft.photoPreview || asset.photo_url!}
+              alt="náhľad"
+              className="mt-1.5 h-20 w-full rounded object-cover"
+            />
+          )}
+        </div>
+
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex flex-1 items-center justify-center gap-1 rounded-md bg-[rgb(var(--brand-600))] px-2 py-1.5 text-xs font-medium text-white hover:bg-[rgb(var(--brand-700))] disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+            Uložiť
+          </button>
+          <button
+            onClick={handleCancelClick}
+            disabled={saving}
+            className="flex items-center justify-center gap-1 rounded-md bg-slate-100 px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-200"
+          >
+            <X className="h-3 w-3" />
+            Zrušiť
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="text-sm">
+      <p className="font-semibold">{CATEGORY_LABELS[asset.category]}</p>
+      {asset.subtype && <p className="text-slate-500">{asset.subtype}</p>}
+      <p className="mt-1">
+        Stav:{' '}
+        <span style={{ color: CONDITION_COLORS[asset.condition] }} className="font-medium">
+          {CONDITION_LABELS[asset.condition]}
+        </span>
+      </p>
+      {asset.note && <p className="mt-1 italic text-slate-600">„{asset.note}“</p>}
+      {asset.photo_url && (
+        <img src={asset.photo_url} alt="fotka aktíva" className="mt-2 h-24 w-full rounded object-cover" />
+      )}
+
+      {asset.author && (
+        <div className="mt-2 flex flex-col gap-1 border-t border-slate-100 pt-2 text-xs text-slate-500">
+          <div className="flex items-center gap-1.5">
+            <span className="font-medium text-slate-600">
+              {asset.author.display_name || 'Anonymný používateľ'}
+            </span>
+            <span
+              className={`flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                asset.author.role === 'admin'
+                  ? 'bg-[rgb(var(--brand-100))] text-[rgb(var(--brand-700))] dark:bg-[rgb(var(--brand-900))] dark:text-[rgb(var(--brand-300))]'
+                  : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-300'
+              }`}
+            >
+              {asset.author.role === 'admin' && <ShieldCheck className="h-2.5 w-2.5" />}
+              {authorRoleLabel}
+            </span>
+          </div>
+
+          {asset.author.show_contact && (asset.author.contact_email || asset.author.contact_phone) && (
+            <div className="flex flex-col gap-0.5">
+              {asset.author.contact_email && (
+                <a href={`mailto:${asset.author.contact_email}`} className="flex items-center gap-1 hover:text-[rgb(var(--brand-700))]">
+                  <Mail className="h-3 w-3" /> {asset.author.contact_email}
+                </a>
+              )}
+              {asset.author.contact_phone && (
+                <a href={`tel:${asset.author.contact_phone}`} className="flex items-center gap-1 hover:text-[rgb(var(--brand-700))]">
+                  <Phone className="h-3 w-3" /> {asset.author.contact_phone}
+                </a>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      <p className="mt-1 text-[10px] text-slate-400">
+        {new Date(asset.created_at).toLocaleString('sk-SK')}
+      </p>
+
+      <HistoryPanel assetId={asset.id} />
+      <CommentsPanel assetId={asset.id} />
+
+      {canManage && (
+        <div className="mt-2 flex gap-2">
+          <button
+            onClick={onStartEdit}
+            className="flex items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-100"
+          >
+            <Pencil className="h-3 w-3" />
+            Upraviť
+          </button>
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-100 disabled:opacity-50"
+          >
+            {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+            Vymazať
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Vycentruje mapu na aktuálnu GPS polohu - výhradne na požiadanie (tlačidlo).
+ *  Zámerne BEZ automatického vyžiadania pri načítaní mapy - permission popup
+ *  hneď pri vstupe (najmä na verejnej úvodnej obrazovke pre neprihlásených)
+ *  pôsobí rušivo. Poloha sa pýta až keď si ju používateľ sám vyžiada. */
+function LocateControl() {
+  const map = useMap();
+  const [locating, setLocating] = useState(false);
+  const [denied, setDenied] = useState(false);
+
+  const centerOnMyLocation = () => {
+    if (!('geolocation' in navigator)) {
+      alert('Prehliadač nepodporuje geolokáciu.');
+      return;
+    }
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        map.setView([pos.coords.latitude, pos.coords.longitude], DEFAULT_ZOOM, { animate: true });
+        setLocating(false);
+        setDenied(false);
+      },
+      () => {
+        setLocating(false);
+        setDenied(true);
+        alert('Nepodarilo sa zistiť polohu. Skontroluj povolenia pre polohu v prehliadači.');
+      },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 }
+    );
+  };
+
+  return (
+    <button
+      onClick={centerOnMyLocation}
+      title="Vycentrovať na moju polohu"
+      className="absolute bottom-4 right-4 z-[1000] flex h-11 w-11 items-center justify-center rounded-full bg-white text-[rgb(var(--brand-700))] shadow-lg hover:bg-[rgb(var(--brand-50))] dark:bg-slate-800 dark:text-[rgb(var(--brand-400))] dark:hover:bg-slate-700"
+    >
+      {locating ? (
+        <Loader2 className="h-5 w-5 animate-spin" />
+      ) : (
+        <LocateFixed className={`h-5 w-5 ${denied ? 'text-red-500' : ''}`} />
+      )}
+    </button>
+  );
+}
+
+/** Legenda farieb stavu - plávajúci panel, dá sa zbaliť.
+ *  Umiestnená vpravo hore POD Leaflet zoom ovládačmi (tie sú v ľavom hornom rohu),
+ *  aby sa s nimi neprekrývala. */
+function Legend() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="absolute right-4 top-4 z-[1000]">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-slate-600 shadow-lg hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300"
+        title="Legenda"
+      >
+        <Info className="h-4 w-4" />
+      </button>
+      {open && (
+        <div className="mt-2 rounded-lg bg-white p-3 text-xs shadow-lg dark:bg-slate-800 dark:text-slate-200">
+          <p className="mb-1.5 font-semibold text-slate-700 dark:text-slate-100">Stav záznamu</p>
+          {(Object.keys(CONDITION_LABELS) as AssetCondition[]).map((cond) => (
+            <div key={cond} className="flex items-center gap-1.5 py-0.5">
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: CONDITION_COLORS[cond] }} />
+              {CONDITION_LABELS[cond]}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Predstiahne OSM dlaždice pre sídlisko do cache Service Workera, aby mapa fungovala aj offline. */
+function OfflineDownloadControl() {
+  const map = useMap();
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+
+  const lonToTileX = (lon: number, z: number) => Math.floor(((lon + 180) / 360) * 2 ** z);
+  const latToTileY = (lat: number, z: number) =>
+    Math.floor(
+      ((1 -
+        Math.log(Math.tan((lat * Math.PI) / 180) + 1 / Math.cos((lat * Math.PI) / 180)) / Math.PI) /
+        2) *
+        2 ** z
+    );
+
+  const handleDownload = async () => {
+    const bounds = map.getBounds();
+    const zooms = [15, 16, 17];
+    const tiles: string[] = [];
+    const subdomains = ['a', 'b', 'c'];
+
+    zooms.forEach((z) => {
+      const xMin = lonToTileX(bounds.getWest(), z);
+      const xMax = lonToTileX(bounds.getEast(), z);
+      const yMin = latToTileY(bounds.getNorth(), z);
+      const yMax = latToTileY(bounds.getSouth(), z);
+      for (let x = xMin; x <= xMax; x++) {
+        for (let y = yMin; y <= yMax; y++) {
+          const s = subdomains[(x + y) % subdomains.length];
+          tiles.push(`https://${s}.tile.openstreetmap.org/${z}/${x}/${y}.png`);
+        }
+      }
+    });
+
+    setProgress({ done: 0, total: tiles.length });
+
+    for (let i = 0; i < tiles.length; i += 6) {
+      const batch = tiles.slice(i, i + 6);
+      await Promise.all(batch.map((url) => fetch(url).catch(() => null)));
+      setProgress({ done: Math.min(i + 6, tiles.length), total: tiles.length });
+      await new Promise((r) => setTimeout(r, 150));
+    }
+
+    setTimeout(() => setProgress(null), 2000);
+  };
+
+  return (
+    <button
+      onClick={handleDownload}
+      disabled={!!progress}
+      title="Stiahnuť mapu pre offline použitie"
+      className="absolute bottom-4 left-4 z-[1000] flex h-11 items-center gap-2 rounded-full bg-white px-4 text-xs font-medium text-slate-600 shadow-lg hover:bg-slate-50 disabled:opacity-70 dark:bg-slate-800 dark:text-slate-300"
+    >
+      {progress ? (
+        <>
+          <Loader2 className="h-4 w-4 animate-spin" />
+          {progress.done}/{progress.total} dlaždíc
+        </>
+      ) : (
+        <>
+          <Download className="h-4 w-4" />
+          Stiahnuť pre offline
+        </>
+      )}
+    </button>
+  );
+}
+
+export default function MapView({ assets, onAssetDeleted, onAssetUpdated }: Props) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<EditDraft | null>(null);
+
+  const startEdit = (asset: AssetRecord) => {
+    setEditingId(asset.id);
+    setDraft({
+      category: asset.category,
+      subtype: asset.subtype ?? '',
+      condition: asset.condition,
+      note: asset.note ?? '',
+      position: null,
+      photo: null,
+      photoPreview: null,
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setDraft(null);
+  };
+
+  // Ochrana pred neúmyselnou stratou rozrobenej editácie pri zatvorení/refresh karty
+  useEffect(() => {
+    if (!editingId) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [editingId]);
+
+  const icons = useMemo(() => {
+    const cache = new Map<string, L.DivIcon>();
+    return (category: AssetCategory, condition: AssetCondition, editing: boolean) => {
+      const key = `${category}-${condition}-${editing}`;
+      if (!cache.has(key)) cache.set(key, buildIcon(category, condition, editing));
+      return cache.get(key)!;
+    };
+  }, []);
+
+  return (
+    <div className="relative h-full w-full">
+      <MapContainer center={VLCINCE_CENTER} zoom={DEFAULT_ZOOM} className="h-full w-full" scrollWheelZoom>
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> prispievatelia'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+
+        <MarkerClusterGroup chunkedLoading maxClusterRadius={50}>
+          {assets.map((asset) => {
+            const isEditing = editingId === asset.id;
+            const position: L.LatLngExpression =
+              isEditing && draft?.position ? draft.position : [asset.latitude, asset.longitude];
+            const displayCategory = isEditing && draft ? draft.category : asset.category;
+            const displayCondition = isEditing && draft ? draft.condition : asset.condition;
+
+            return (
+              <Marker
+                key={asset.id}
+                position={position}
+                icon={icons(displayCategory, displayCondition, isEditing)}
+                draggable={isEditing}
+                eventHandlers={
+                  isEditing
+                    ? {
+                        dragend: (e) => {
+                          const marker = e.target as L.Marker;
+                          setDraft((d) => (d ? { ...d, position: marker.getLatLng() } : d));
+                        },
+                      }
+                    : undefined
+                }
+              >
+                <Popup autoClose={false} closeOnClick={false} maxHeight={340}>
+                  <AssetPopupContent
+                    asset={asset}
+                    onAssetDeleted={onAssetDeleted}
+                    onAssetUpdated={onAssetUpdated}
+                    isEditing={isEditing}
+                    draft={isEditing ? draft : null}
+                    onStartEdit={() => startEdit(asset)}
+                    onChangeDraft={setDraft}
+                    onCancelEdit={cancelEdit}
+                  />
+                </Popup>
+              </Marker>
+            );
+          })}
+        </MarkerClusterGroup>
+
+        <LocateControl />
+        <Legend />
+        <OfflineDownloadControl />
+      </MapContainer>
+    </div>
+  );
+}
