@@ -30,7 +30,14 @@ const MapView = lazy(() => import('./components/MapView'));
 const StatsPanel = lazy(() => import('./components/StatsPanel'));
 const AdminPanel = lazy(() => import('./components/AdminPanel'));
 
-const EMPTY_FILTERS: Filters = { categories: [], conditions: [], search: '', myOnly: false };
+const EMPTY_FILTERS: Filters = {
+  categories: [],
+  conditions: [],
+  search: '',
+  myOnly: false,
+  dateFrom: null,
+  dateTo: null,
+};
 
 type View = 'zber' | 'mapa' | 'statistiky' | 'admin';
 
@@ -104,6 +111,8 @@ export default function App() {
       if (filters.conditions.length > 0 && !filters.conditions.includes(asset.condition)) {
         return false;
       }
+      if (filters.dateFrom && asset.created_at < filters.dateFrom) return false;
+      if (filters.dateTo && asset.created_at.slice(0, 10) > filters.dateTo) return false;
       const q = filters.search.trim().toLowerCase();
       if (
         q &&

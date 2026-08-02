@@ -65,6 +65,37 @@ export default function FilterPanel({ filters, onChange, totalCount, filteredCou
 
       <div>
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          Obdobie vytvorenia
+        </h3>
+        <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={filters.dateFrom ?? ''}
+            onChange={(e) => onChange({ ...filters, dateFrom: e.target.value || null })}
+            max={filters.dateTo ?? undefined}
+            className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 focus:border-[rgb(var(--brand-500))] focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+          />
+          <span className="text-xs text-slate-400">–</span>
+          <input
+            type="date"
+            value={filters.dateTo ?? ''}
+            onChange={(e) => onChange({ ...filters, dateTo: e.target.value || null })}
+            min={filters.dateFrom ?? undefined}
+            className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 focus:border-[rgb(var(--brand-500))] focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+          />
+        </div>
+        {(filters.dateFrom || filters.dateTo) && (
+          <button
+            onClick={() => onChange({ ...filters, dateFrom: null, dateTo: null })}
+            className="mt-1 text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+          >
+            Zrušiť obdobie
+          </button>
+        )}
+      </div>
+
+      <div>
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
           Kategória
         </h3>
         <div className="flex flex-wrap gap-1.5">

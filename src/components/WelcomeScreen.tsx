@@ -3,6 +3,7 @@ import { TreePine, LogIn, UserPlus, Loader2, Moon, Sun, MapPin, ClipboardList, U
 import { useTheme } from '../lib/theme';
 import AuthForm from './AuthForm';
 import type { AssetRecord } from '../types';
+import { APP_VERSION } from '../version';
 
 const MapView = lazy(() => import('./MapView'));
 
@@ -82,6 +83,10 @@ export default function WelcomeScreen({ assets, loadingAssets }: Props) {
             <UserPlus className="h-4 w-4" /> Registrovať sa
           </button>
         </div>
+
+        <p className="mt-2 text-center text-[11px] text-slate-300 dark:text-slate-600">
+          Vlčince – Pasport v{APP_VERSION}
+        </p>
       </div>
 
       {/* Mapa sa počas otvoreného prihlasovacieho okna vôbec nevykresľuje -

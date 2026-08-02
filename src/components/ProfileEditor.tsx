@@ -4,6 +4,7 @@ import { useAuth } from '../lib/auth';
 import { supabase } from '../lib/supabase';
 import { pushSupported, isPushSubscribed, subscribeToPush, unsubscribeFromPush } from '../lib/push';
 import { useAccent, ACCENT_OPTIONS } from '../lib/accent';
+import { APP_VERSION } from '../version';
 
 interface Props {
   onClose: () => void;
@@ -269,6 +270,10 @@ export default function ProfileEditor({ onClose }: Props) {
           <LogOut className="h-4 w-4" /> Odhlásiť sa
         </button>
       </div>
+
+      <p className="pt-1 text-center text-[11px] text-slate-300 dark:text-slate-600">
+        Vlčince – Pasport v{APP_VERSION}
+      </p>
     </div>
   );
 }

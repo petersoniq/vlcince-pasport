@@ -117,4 +117,6 @@ export interface Filters {
   conditions: AssetCondition[];
   search: string;
   myOnly: boolean;
+  dateFrom: string | null; // ISO dátum (yyyy-mm-dd), vrátane
+  dateTo: string | null; // ISO dátum (yyyy-mm-dd), vrátane
 }
