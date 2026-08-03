@@ -339,3 +339,11 @@ on conflict (id) do nothing;
 -- (aktuálna verzia notify_admins_on_critical_status s debounce logikou je vyššie
 --  nahradená - pozri poslednú definíciu funkcie v tomto súbore ako zdroj pravdy
 --  pri reprodukovaní schémy od začiatku)
+
+-- ============================================================================
+-- v2.0: viacnasobne fotky, konfigurovatelne kategorie/stavy, onboarding
+-- ============================================================================
+-- Pozri plnu migraciu vo verzii nasadenej v Supabase (migration: v2_multi_photos_configurable_taxonomy).
+-- Struktura: asset_photos (viacnasobne fotky), categories + conditions (nahradaju enumy,
+-- FK z vlcince_assets.category/condition), profiles.has_seen_onboarding, DELETE policy
+-- pre asset-photos storage.

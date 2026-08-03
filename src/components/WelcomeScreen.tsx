@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { TreePine, LogIn, UserPlus, Loader2, Moon, Sun, MapPin, ClipboardList, Users } from 'lucide-react';
 import { useTheme } from '../lib/theme';
 import AuthForm from './AuthForm';
@@ -20,6 +20,15 @@ export default function WelcomeScreen({ assets, loadingAssets }: Props) {
   const { theme, toggleTheme } = useTheme();
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+
+  useEffect(() => {
+    if (!authOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setAuthOpen(false);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [authOpen]);
 
   const openAuth = (mode: 'login' | 'register') => {
     setAuthMode(mode);

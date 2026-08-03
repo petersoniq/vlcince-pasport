@@ -4,6 +4,7 @@ import App from './App';
 import { AuthProvider } from './lib/auth';
 import { ThemeProvider } from './lib/theme';
 import { AccentProvider } from './lib/accent';
+import { TaxonomyProvider } from './lib/taxonomy';
 import './index.css';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
@@ -13,7 +14,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <ThemeProvider>
       <AccentProvider>
         <AuthProvider>
-          <App />
+          <TaxonomyProvider>
+            <App />
+          </TaxonomyProvider>
         </AuthProvider>
       </AccentProvider>
     </ThemeProvider>

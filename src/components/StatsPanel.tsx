@@ -1,7 +1,7 @@
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { Download, FileJson } from 'lucide-react';
 import type { AssetRecord } from '../types';
-import { CATEGORY_LABELS, CONDITION_LABELS, CONDITION_COLORS } from '../types';
+import { useTaxonomy } from '../lib/taxonomy';
 import { exportAssetsToCsv, exportAssetsToGeoJson } from '../lib/export';
 
 interface Props {
@@ -9,15 +9,18 @@ interface Props {
 }
 
 export default function StatsPanel({ assets }: Props) {
-  const byCategory = Object.entries(CATEGORY_LABELS).map(([key, label]) => ({
-    label,
-    pocet: assets.filter((a) => a.category === key).length,
+  const { categories, conditions, categoryLabel, conditionLabel } = useTaxonomy();
+
+  const byCategory = categories.map((cat) => ({
+    label: cat.label,
+    pocet: assets.filter((a) => a.category === cat.key).length,
   }));
 
-  const byCondition = Object.entries(CONDITION_LABELS).map(([key, label]) => ({
-    key,
-    label,
-    pocet: assets.filter((a) => a.condition === key).length,
+  const byCondition = conditions.map((cond) => ({
+    key: cond.key,
+    label: cond.label,
+    color: cond.color,
+    pocet: assets.filter((a) => a.condition === cond.key).length,
   }));
 
   return (
@@ -28,14 +31,14 @@ export default function StatsPanel({ assets }: Props) {
         </p>
         <div className="flex gap-2">
           <button
-            onClick={() => exportAssetsToCsv(assets)}
+            onClick={() => exportAssetsToCsv(assets, categoryLabel, conditionLabel)}
             disabled={assets.length === 0}
             className="flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 disabled:opacity-40 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
           >
             <Download className="h-3.5 w-3.5" /> CSV
           </button>
           <button
-            onClick={() => exportAssetsToGeoJson(assets)}
+            onClick={() => exportAssetsToGeoJson(assets, categoryLabel, conditionLabel)}
             disabled={assets.length === 0}
             className="flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 disabled:opacity-40 dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
           >
@@ -66,7 +69,7 @@ export default function StatsPanel({ assets }: Props) {
               <Tooltip />
               <Bar dataKey="pocet" radius={[4, 4, 0, 0]}>
                 {byCondition.map((entry) => (
-                  <Cell key={entry.key} fill={CONDITION_COLORS[entry.key as keyof typeof CONDITION_COLORS]} />
+                  <Cell key={entry.key} fill={entry.color} />
                 ))}
               </Bar>
             </BarChart>

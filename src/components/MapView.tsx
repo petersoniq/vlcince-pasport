@@ -19,36 +19,22 @@ import {
   History,
   Camera,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
-import type { AssetRecord, AssetCategory, AssetCondition, StatusHistoryEntry } from '../types';
-import { CATEGORY_LABELS, CONDITION_LABELS, CONDITION_COLORS } from '../types';
+import type { AssetRecord, AssetCategory, AssetCondition, StatusHistoryEntry, AssetPhoto } from '../types';
 import { useAuth } from '../lib/auth';
+import { useTaxonomy } from '../lib/taxonomy';
 import { supabase } from '../lib/supabase';
+import { compressImage } from '../lib/imageCompress';
 import CommentsPanel from './CommentsPanel';
 
 // Stred sídliska Vlčince, Žilina - použije sa len ako záloha, ak sa nepodarí zistiť polohu
 const VLCINCE_CENTER: [number, number] = [49.2233, 18.7482];
 const DEFAULT_ZOOM = 16;
+const MAX_PHOTOS = 4;
 
-const CATEGORIES = Object.keys(CATEGORY_LABELS) as AssetCategory[];
-const CONDITIONS = Object.keys(CONDITION_LABELS) as AssetCondition[];
-
-// Jednoduché emoji symboly podľa kategórie - žiadna ďalšia závislosť, funguje offline
-const CATEGORY_EMOJI: Record<AssetCategory, string> = {
-  lavicka: '🪑',
-  kos: '🗑️',
-  zelen_strom: '🌳',
-  zelen_kry: '🌿',
-  zelen_trvalka: '🌱',
-  detsky_prvok: '🎠',
-  sportovy_prvok: '🏋️',
-  osvetlenie: '💡',
-  ine: '📍',
-};
-
-function buildIcon(category: AssetCategory, condition: AssetCondition, editing: boolean) {
-  const color = CONDITION_COLORS[condition];
-  const emoji = CATEGORY_EMOJI[category];
+function buildIcon(emoji: string, color: string, editing: boolean) {
   const ring = editing ? 'outline: 3px solid #2563eb; outline-offset: 2px;' : '';
   return L.divIcon({
     html: `<div style="
@@ -68,9 +54,9 @@ interface EditDraft {
   subtype: string;
   condition: AssetCondition;
   note: string;
-  position: L.LatLng | null; // null = poloha nezmenená
-  photo: File | null; // nová fotka na nahratie (null = nezmenená)
-  photoPreview: string | null;
+  position: L.LatLng | null;
+  newPhotos: { file: File; preview: string }[];
+  removedPhotoIds: string[];
 }
 
 interface Props {
@@ -79,8 +65,45 @@ interface Props {
   onAssetUpdated?: (asset: AssetRecord) => void;
 }
 
+/** Jednoduchá galéria fotiek s prepínaním šípkami (bez externej závislosti). */
+function PhotoGallery({ photos }: { photos: AssetPhoto[] }) {
+  const [index, setIndex] = useState(0);
+  if (photos.length === 0) return null;
+  const photo = photos[index];
+
+  return (
+    <div className="relative mt-2">
+      <img src={photo.photo_url} alt={`fotka záznamu ${index + 1} z ${photos.length}`} className="h-24 w-full rounded object-cover" />
+      {photos.length > 1 && (
+        <>
+          <button
+            type="button"
+            onClick={() => setIndex((i) => (i - 1 + photos.length) % photos.length)}
+            aria-label="Predchádzajúca fotka"
+            className="absolute left-1 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setIndex((i) => (i + 1) % photos.length)}
+            aria-label="Ďalšia fotka"
+            className="absolute right-1 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-black/50 text-white"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+          <span className="absolute bottom-1 right-1 rounded-full bg-black/50 px-1.5 py-0.5 text-[10px] text-white">
+            {index + 1}/{photos.length}
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
+
 /** Rozbaľovací panel s históriou zmien stavu záznamu - dáta sa načítajú lenivo (až po kliknutí). */
 function HistoryPanel({ assetId }: { assetId: string }) {
+  const { conditionLabel, conditionColor } = useTaxonomy();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [entries, setEntries] = useState<StatusHistoryEntry[] | null>(null);
@@ -104,12 +127,13 @@ function HistoryPanel({ assetId }: { assetId: string }) {
     <div className="mt-2 border-t border-slate-100 pt-2">
       <button
         onClick={handleToggle}
+        aria-expanded={open}
         className="flex w-full items-center justify-between text-xs font-medium text-slate-500 hover:text-slate-700"
       >
         <span className="flex items-center gap-1">
-          <History className="h-3 w-3" /> História zmien
+          <History className="h-3 w-3" aria-hidden="true" /> História zmien
         </span>
-        <ChevronDown className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`h-3 w-3 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
       </button>
       {open && (
         <div className="mt-1.5 flex flex-col gap-1">
@@ -122,16 +146,14 @@ function HistoryPanel({ assetId }: { assetId: string }) {
               <div key={h.id} className="text-[11px] text-slate-500">
                 {h.old_condition ? (
                   <>
-                    <span style={{ color: CONDITION_COLORS[h.old_condition] }}>
-                      {CONDITION_LABELS[h.old_condition]}
-                    </span>
+                    <span style={{ color: conditionColor(h.old_condition) }}>{conditionLabel(h.old_condition)}</span>
                     {' → '}
                   </>
                 ) : (
                   'Vytvorené ako '
                 )}
-                <span style={{ color: CONDITION_COLORS[h.new_condition] }} className="font-medium">
-                  {CONDITION_LABELS[h.new_condition]}
+                <span style={{ color: conditionColor(h.new_condition) }} className="font-medium">
+                  {conditionLabel(h.new_condition)}
                 </span>
                 <span className="text-slate-400"> · {new Date(h.changed_at).toLocaleString('sk-SK')}</span>
               </div>
@@ -162,13 +184,24 @@ function AssetPopupContent({
   onCancelEdit: () => void;
 }) {
   const { user, isAdmin } = useAuth();
+  const { categories, conditions, categoryLabel, categoryEmoji, conditionLabel, conditionColor } = useTaxonomy();
   const [deleting, setDeleting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [compressingEdit, setCompressingEdit] = useState(false);
   const canManage = !!user && (user.id === asset.user_id || isAdmin);
 
+  const existingPhotos = (asset.photos ?? []).filter((p) => !draft?.removedPhotoIds.includes(p.id));
+
   const handleDelete = async () => {
-    if (!confirm('Naozaj chceš tento záznam natrvalo odstrániť?')) return;
+    if (!confirm('Naozaj chceš tento záznam natrvalo odstrániť? Vrátane všetkých fotiek.')) return;
     setDeleting(true);
+
+    // Najprv zmaž fyzické súbory zo Storage (DB cascade zmaže riadky, nie súbory)
+    const paths = (asset.photos ?? []).map((p) => p.storage_path).filter(Boolean);
+    if (paths.length > 0) {
+      await supabase.storage.from('asset-photos').remove(paths);
+    }
+
     const { error } = await supabase.from('vlcince_assets').delete().eq('id', asset.id);
     setDeleting(false);
     if (error) {
@@ -178,25 +211,71 @@ function AssetPopupContent({
     onAssetDeleted?.(asset.id);
   };
 
-  const handleSave = async () => {
+  const handleAddPhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!draft) return;
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+    const remaining = MAX_PHOTOS - existingPhotos.length - draft.newPhotos.length;
+    const toAdd = files.slice(0, remaining);
+
+    setCompressingEdit(true);
+    const compressed = await Promise.all(
+      toAdd.map(async (file) => {
+        const blob = await compressImage(file);
+        const compressedFile = new File([blob], file.name, { type: 'image/jpeg' });
+        return { file: compressedFile, preview: URL.createObjectURL(blob) };
+      })
+    );
+    setCompressingEdit(false);
+    onChangeDraft({ ...draft, newPhotos: [...draft.newPhotos, ...compressed] });
+    e.target.value = '';
+  };
+
+  const removeNewPhoto = (i: number) => {
+    if (!draft) return;
+    onChangeDraft({ ...draft, newPhotos: draft.newPhotos.filter((_, idx) => idx !== i) });
+  };
+
+  const removeExistingPhoto = (photoId: string) => {
+    if (!draft) return;
+    onChangeDraft({ ...draft, removedPhotoIds: [...draft.removedPhotoIds, photoId] });
+  };
+
+  const handleSave = async () => {
+    if (!draft || !user) return;
     setSaving(true);
 
-    let photoUrl: string | undefined;
-    if (draft.photo) {
-      const path = `${asset.id}.jpg`;
+    // 1) zmaž fotky označené na odstránenie (DB riadok + storage súbor)
+    if (draft.removedPhotoIds.length > 0) {
+      const toRemove = (asset.photos ?? []).filter((p) => draft.removedPhotoIds.includes(p.id));
+      const paths = toRemove.map((p) => p.storage_path).filter(Boolean);
+      if (paths.length > 0) await supabase.storage.from('asset-photos').remove(paths);
+      await supabase.from('asset_photos').delete().in('id', draft.removedPhotoIds);
+    }
+
+    // 2) nahraj nové fotky
+    const startPosition = existingPhotos.length;
+    for (let i = 0; i < draft.newPhotos.length; i++) {
+      const path = `${asset.id}-edit-${Date.now()}-${i}.jpg`;
       const { error: uploadError } = await supabase.storage
         .from('asset-photos')
-        .upload(path, draft.photo, { contentType: draft.photo.type, upsert: true });
+        .upload(path, draft.newPhotos[i].file, { contentType: 'image/jpeg', upsert: true });
       if (uploadError) {
         setSaving(false);
         alert(`Nahratie fotky zlyhalo: ${uploadError.message}`);
         return;
       }
       const { data: pub } = supabase.storage.from('asset-photos').getPublicUrl(path);
-      photoUrl = `${pub.publicUrl}?t=${Date.now()}`;
+      await supabase.from('asset_photos').insert({
+        asset_id: asset.id,
+        photo_url: pub.publicUrl,
+        storage_path: path,
+        user_id: user.id,
+        position: startPosition + i,
+      });
     }
 
+    // 3) uprav samotný záznam
     const updatePayload: Record<string, unknown> = {
       category: draft.category,
       subtype: draft.subtype || null,
@@ -207,16 +286,13 @@ function AssetPopupContent({
       updatePayload.latitude = draft.position.lat;
       updatePayload.longitude = draft.position.lng;
     }
-    if (photoUrl) {
-      updatePayload.photo_url = photoUrl;
-    }
 
     const { data, error } = await supabase
       .from('vlcince_assets')
       .update(updatePayload)
       .eq('id', asset.id)
       .select(
-        'id, created_at, category, subtype, condition, latitude, longitude, note, photo_url, user_id, author:profiles(display_name, contact_email, contact_phone, show_contact, role)'
+        'id, created_at, category, subtype, condition, latitude, longitude, note, photo_url, user_id, author:profiles(display_name, contact_email, contact_phone, show_contact, role), photos:asset_photos(id, asset_id, photo_url, storage_path, user_id, position, created_at)'
       )
       .single();
 
@@ -237,43 +313,52 @@ function AssetPopupContent({
       draft.condition !== asset.condition ||
       draft.note !== (asset.note ?? '') ||
       draft.position !== null ||
-      draft.photo !== null
+      draft.newPhotos.length > 0 ||
+      draft.removedPhotoIds.length > 0
     );
   };
 
   const handleCancelClick = () => {
     if (hasUnsavedChanges() && !confirm('Zahodiť neuložené zmeny?')) return;
+    draft?.newPhotos.forEach((p) => URL.revokeObjectURL(p.preview));
     onCancelEdit();
   };
 
   const authorRoleLabel = asset.author?.role === 'admin' ? 'Administrátor' : 'Člen komunity';
 
   if (isEditing && draft) {
+    const totalPhotoCount = existingPhotos.length + draft.newPhotos.length;
     return (
-      <div className="flex w-56 flex-col gap-2 text-sm">
+      <div className="flex w-60 flex-col gap-2 text-sm">
         <p className="flex items-center gap-1.5 rounded-md bg-blue-50 px-2 py-1.5 text-xs text-blue-700">
-          <Move className="h-3.5 w-3.5 shrink-0" />
+          <Move className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           Potiahni značku na mape pre zmenu polohy
         </p>
 
         <div>
-          <label className="mb-0.5 block text-xs font-medium text-slate-600">Kategória</label>
+          <label htmlFor="edit-category" className="mb-0.5 block text-xs font-medium text-slate-600">
+            Kategória
+          </label>
           <select
+            id="edit-category"
             value={draft.category}
-            onChange={(e) => onChangeDraft({ ...draft, category: e.target.value as AssetCategory })}
+            onChange={(e) => onChangeDraft({ ...draft, category: e.target.value })}
             className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs"
           >
-            {CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {CATEGORY_LABELS[c]}
+            {categories.map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.emoji} {c.label}
               </option>
             ))}
           </select>
         </div>
 
         <div>
-          <label className="mb-0.5 block text-xs font-medium text-slate-600">Podtyp</label>
+          <label htmlFor="edit-subtype" className="mb-0.5 block text-xs font-medium text-slate-600">
+            Podtyp
+          </label>
           <input
+            id="edit-subtype"
             type="text"
             value={draft.subtype}
             onChange={(e) => onChangeDraft({ ...draft, subtype: e.target.value })}
@@ -282,23 +367,29 @@ function AssetPopupContent({
         </div>
 
         <div>
-          <label className="mb-0.5 block text-xs font-medium text-slate-600">Stav</label>
+          <label htmlFor="edit-condition" className="mb-0.5 block text-xs font-medium text-slate-600">
+            Stav
+          </label>
           <select
+            id="edit-condition"
             value={draft.condition}
-            onChange={(e) => onChangeDraft({ ...draft, condition: e.target.value as AssetCondition })}
+            onChange={(e) => onChangeDraft({ ...draft, condition: e.target.value })}
             className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs"
           >
-            {CONDITIONS.map((c) => (
-              <option key={c} value={c}>
-                {CONDITION_LABELS[c]}
+            {conditions.map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.label}
               </option>
             ))}
           </select>
         </div>
 
         <div>
-          <label className="mb-0.5 block text-xs font-medium text-slate-600">Poznámka</label>
+          <label htmlFor="edit-note" className="mb-0.5 block text-xs font-medium text-slate-600">
+            Poznámka
+          </label>
           <textarea
+            id="edit-note"
             value={draft.note}
             onChange={(e) => onChangeDraft({ ...draft, note: e.target.value })}
             rows={2}
@@ -307,27 +398,45 @@ function AssetPopupContent({
         </div>
 
         <div>
-          <label className="mb-0.5 block text-xs font-medium text-slate-600">Fotografia</label>
-          <label className="flex cursor-pointer items-center justify-center gap-1.5 rounded-md border border-dashed border-slate-300 px-2 py-2 text-xs text-slate-500 hover:border-blue-400">
-            <Camera className="h-3.5 w-3.5" />
-            {draft.photoPreview ? 'Zmeniť fotku' : 'Nahrať novú fotku'}
-            <input
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                onChangeDraft({ ...draft, photo: file, photoPreview: URL.createObjectURL(file) });
-              }}
-            />
+          <label className="mb-0.5 block text-xs font-medium text-slate-600">
+            Fotografie ({totalPhotoCount}/{MAX_PHOTOS})
           </label>
-          {(draft.photoPreview || asset.photo_url) && (
-            <img
-              src={draft.photoPreview || asset.photo_url!}
-              alt="náhľad"
-              className="mt-1.5 h-20 w-full rounded object-cover"
-            />
+          {(existingPhotos.length > 0 || draft.newPhotos.length > 0) && (
+            <div className="mb-1.5 grid grid-cols-4 gap-1.5">
+              {existingPhotos.map((p) => (
+                <div key={p.id} className="relative">
+                  <img src={p.photo_url} alt="" className="h-14 w-full rounded object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => removeExistingPhoto(p.id)}
+                    aria-label="Odstrániť fotku"
+                    className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-600 text-white"
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+              ))}
+              {draft.newPhotos.map((p, i) => (
+                <div key={i} className="relative">
+                  <img src={p.preview} alt="" className="h-14 w-full rounded object-cover ring-2 ring-emerald-400" />
+                  <button
+                    type="button"
+                    onClick={() => removeNewPhoto(i)}
+                    aria-label="Odstrániť novú fotku"
+                    className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-600 text-white"
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {totalPhotoCount < MAX_PHOTOS && (
+            <label className="flex cursor-pointer items-center justify-center gap-1.5 rounded-md border border-dashed border-slate-300 px-2 py-2 text-xs text-slate-500 hover:border-blue-400">
+              {compressingEdit ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
+              {compressingEdit ? 'Spracúvam…' : 'Pridať fotku'}
+              <input type="file" accept="image/*" multiple className="hidden" onChange={handleAddPhotos} disabled={compressingEdit} />
+            </label>
           )}
         </div>
 
@@ -355,18 +464,19 @@ function AssetPopupContent({
 
   return (
     <div className="text-sm">
-      <p className="font-semibold">{CATEGORY_LABELS[asset.category]}</p>
+      <p className="font-semibold">
+        {categoryEmoji(asset.category)} {categoryLabel(asset.category)}
+      </p>
       {asset.subtype && <p className="text-slate-500">{asset.subtype}</p>}
       <p className="mt-1">
         Stav:{' '}
-        <span style={{ color: CONDITION_COLORS[asset.condition] }} className="font-medium">
-          {CONDITION_LABELS[asset.condition]}
+        <span style={{ color: conditionColor(asset.condition) }} className="font-medium">
+          {conditionLabel(asset.condition)}
         </span>
       </p>
       {asset.note && <p className="mt-1 italic text-slate-600">„{asset.note}“</p>}
-      {asset.photo_url && (
-        <img src={asset.photo_url} alt="fotka aktíva" className="mt-2 h-24 w-full rounded object-cover" />
-      )}
+
+      <PhotoGallery photos={asset.photos ?? (asset.photo_url ? [{ id: 'legacy', asset_id: asset.id, photo_url: asset.photo_url, storage_path: '', user_id: null, position: 0, created_at: asset.created_at }] : [])} />
 
       {asset.author && (
         <div className="mt-2 flex flex-col gap-1 border-t border-slate-100 pt-2 text-xs text-slate-500">
@@ -416,7 +526,7 @@ function AssetPopupContent({
             onClick={onStartEdit}
             className="flex items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-100"
           >
-            <Pencil className="h-3 w-3" />
+            <Pencil className="h-3 w-3" aria-hidden="true" />
             Upraviť
           </button>
           <button
@@ -424,7 +534,7 @@ function AssetPopupContent({
             disabled={deleting}
             className="flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-100 disabled:opacity-50"
           >
-            {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
+            {deleting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" aria-hidden="true" />}
             Vymazať
           </button>
         </div>
@@ -433,10 +543,7 @@ function AssetPopupContent({
   );
 }
 
-/** Vycentruje mapu na aktuálnu GPS polohu - výhradne na požiadanie (tlačidlo).
- *  Zámerne BEZ automatického vyžiadania pri načítaní mapy - permission popup
- *  hneď pri vstupe (najmä na verejnej úvodnej obrazovke pre neprihlásených)
- *  pôsobí rušivo. Poloha sa pýta až keď si ju používateľ sám vyžiada. */
+/** Vycentruje mapu na aktuálnu GPS polohu - výhradne na požiadanie (tlačidlo). */
 function LocateControl() {
   const map = useMap();
   const [locating, setLocating] = useState(false);
@@ -467,6 +574,7 @@ function LocateControl() {
     <button
       onClick={centerOnMyLocation}
       title="Vycentrovať na moju polohu"
+      aria-label="Vycentrovať mapu na moju aktuálnu polohu"
       className="absolute bottom-4 right-4 z-[1000] flex h-11 w-11 items-center justify-center rounded-full bg-white text-[rgb(var(--brand-700))] shadow-lg hover:bg-[rgb(var(--brand-50))] dark:bg-slate-800 dark:text-[rgb(var(--brand-400))] dark:hover:bg-slate-700"
     >
       {locating ? (
@@ -478,27 +586,28 @@ function LocateControl() {
   );
 }
 
-/** Legenda farieb stavu - plávajúci panel, dá sa zbaliť.
- *  Umiestnená vpravo hore POD Leaflet zoom ovládačmi (tie sú v ľavom hornom rohu),
- *  aby sa s nimi neprekrývala. */
+/** Legenda farieb stavu - plávajúci panel, dá sa zbaliť. */
 function Legend() {
+  const { conditions } = useTaxonomy();
   const [open, setOpen] = useState(false);
   return (
     <div className="absolute right-4 top-4 z-[1000]">
       <button
         onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-label="Zobraziť/skryť legendu farieb stavu"
         className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-slate-600 shadow-lg hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300"
         title="Legenda"
       >
-        <Info className="h-4 w-4" />
+        <Info className="h-4 w-4" aria-hidden="true" />
       </button>
       {open && (
         <div className="mt-2 rounded-lg bg-white p-3 text-xs shadow-lg dark:bg-slate-800 dark:text-slate-200">
           <p className="mb-1.5 font-semibold text-slate-700 dark:text-slate-100">Stav záznamu</p>
-          {(Object.keys(CONDITION_LABELS) as AssetCondition[]).map((cond) => (
-            <div key={cond} className="flex items-center gap-1.5 py-0.5">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: CONDITION_COLORS[cond] }} />
-              {CONDITION_LABELS[cond]}
+          {conditions.map((cond) => (
+            <div key={cond.key} className="flex items-center gap-1.5 py-0.5">
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: cond.color }} />
+              {cond.label}
             </div>
           ))}
         </div>
@@ -557,6 +666,7 @@ function OfflineDownloadControl() {
       onClick={handleDownload}
       disabled={!!progress}
       title="Stiahnuť mapu pre offline použitie"
+      aria-label="Stiahnuť mapové dlaždice sídliska pre offline použitie"
       className="absolute bottom-4 left-4 z-[1000] flex h-11 items-center gap-2 rounded-full bg-white px-4 text-xs font-medium text-slate-600 shadow-lg hover:bg-slate-50 disabled:opacity-70 dark:bg-slate-800 dark:text-slate-300"
     >
       {progress ? (
@@ -566,7 +676,7 @@ function OfflineDownloadControl() {
         </>
       ) : (
         <>
-          <Download className="h-4 w-4" />
+          <Download className="h-4 w-4" aria-hidden="true" />
           Stiahnuť pre offline
         </>
       )}
@@ -575,6 +685,7 @@ function OfflineDownloadControl() {
 }
 
 export default function MapView({ assets, onAssetDeleted, onAssetUpdated }: Props) {
+  const { categoryEmoji, conditionColor } = useTaxonomy();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<EditDraft | null>(null);
 
@@ -586,8 +697,8 @@ export default function MapView({ assets, onAssetDeleted, onAssetUpdated }: Prop
       condition: asset.condition,
       note: asset.note ?? '',
       position: null,
-      photo: null,
-      photoPreview: null,
+      newPhotos: [],
+      removedPhotoIds: [],
     });
   };
 
@@ -596,7 +707,6 @@ export default function MapView({ assets, onAssetDeleted, onAssetUpdated }: Prop
     setDraft(null);
   };
 
-  // Ochrana pred neúmyselnou stratou rozrobenej editácie pri zatvorení/refresh karty
   useEffect(() => {
     if (!editingId) return;
     const handler = (e: BeforeUnloadEvent) => {
@@ -611,14 +721,21 @@ export default function MapView({ assets, onAssetDeleted, onAssetUpdated }: Prop
     const cache = new Map<string, L.DivIcon>();
     return (category: AssetCategory, condition: AssetCondition, editing: boolean) => {
       const key = `${category}-${condition}-${editing}`;
-      if (!cache.has(key)) cache.set(key, buildIcon(category, condition, editing));
+      if (!cache.has(key)) cache.set(key, buildIcon(categoryEmoji(category), conditionColor(condition), editing));
       return cache.get(key)!;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categoryEmoji, conditionColor]);
 
   return (
     <div className="relative h-full w-full">
-      <MapContainer center={VLCINCE_CENTER} zoom={DEFAULT_ZOOM} className="h-full w-full" scrollWheelZoom>
+      <MapContainer
+        center={VLCINCE_CENTER}
+        zoom={DEFAULT_ZOOM}
+        className="h-full w-full"
+        scrollWheelZoom
+        aria-label="Mapa záznamov mobiliáru a zelene sídliska Vlčince"
+      >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> prispievatelia'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -649,7 +766,7 @@ export default function MapView({ assets, onAssetDeleted, onAssetUpdated }: Prop
                     : undefined
                 }
               >
-                <Popup autoClose={false} closeOnClick={false} maxHeight={340}>
+                <Popup autoClose={false} closeOnClick={false} maxHeight={360}>
                   <AssetPopupContent
                     asset={asset}
                     onAssetDeleted={onAssetDeleted}

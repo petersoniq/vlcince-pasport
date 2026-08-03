@@ -1,5 +1,4 @@
 import type { AssetRecord } from '../types';
-import { CATEGORY_LABELS, CONDITION_LABELS } from '../types';
 
 function downloadBlob(content: string, filename: string, mimeType: string) {
   const blob = new Blob([content], { type: mimeType });
@@ -20,7 +19,13 @@ function csvEscape(value: string): string {
   return value;
 }
 
-export function exportAssetsToCsv(assets: AssetRecord[]) {
+/** categoryLabel/conditionLabel sa odovzdávajú zvonku (z useTaxonomy hooku),
+ *  keďže kategórie/stavy sú od v2.0 dynamické (nie statické konštanty). */
+export function exportAssetsToCsv(
+  assets: AssetRecord[],
+  categoryLabel: (key: string) => string,
+  conditionLabel: (key: string) => string
+) {
   const headers = [
     'id',
     'kategoria',
@@ -35,9 +40,9 @@ export function exportAssetsToCsv(assets: AssetRecord[]) {
   const rows = assets.map((a) =>
     [
       a.id,
-      CATEGORY_LABELS[a.category],
+      categoryLabel(a.category),
       a.subtype ?? '',
-      CONDITION_LABELS[a.condition],
+      conditionLabel(a.condition),
       String(a.latitude),
       String(a.longitude),
       a.note ?? '',
@@ -52,7 +57,11 @@ export function exportAssetsToCsv(assets: AssetRecord[]) {
   downloadBlob('\uFEFF' + csv, `vlcince-pasport-${Date.now()}.csv`, 'text/csv;charset=utf-8');
 }
 
-export function exportAssetsToGeoJson(assets: AssetRecord[]) {
+export function exportAssetsToGeoJson(
+  assets: AssetRecord[],
+  categoryLabel: (key: string) => string,
+  conditionLabel: (key: string) => string
+) {
   const geojson = {
     type: 'FeatureCollection',
     features: assets.map((a) => ({
@@ -61,10 +70,10 @@ export function exportAssetsToGeoJson(assets: AssetRecord[]) {
       properties: {
         id: a.id,
         category: a.category,
-        category_label: CATEGORY_LABELS[a.category],
+        category_label: categoryLabel(a.category),
         subtype: a.subtype,
         condition: a.condition,
-        condition_label: CONDITION_LABELS[a.condition],
+        condition_label: conditionLabel(a.condition),
         note: a.note,
         author: a.author?.display_name ?? null,
         created_at: a.created_at,

@@ -60,3 +60,27 @@ self.addEventListener('notificationclick', (event: NotificationEvent) => {
     })
   );
 });
+
+// ---------------------------------------------------------------------------
+// Background Sync - spustí REÁLNU synchronizačnú logiku (nie len naivné
+// zopakovanie jedného zlyhaného fetch requestu). Vďaka tomu funguje aj viac-
+// krokový tok (upload fotky -> insert záznamu -> insert riadkov v asset_photos)
+// spoľahlivo aj vtedy, keď medzitým používateľ zavrie tab - prehliadač zobudí
+// tento Service Worker a znova spustí celú frontu z IndexedDB.
+// (Klient registruje 'sync-assets' tag v lib/sync.ts pri každom queueAsset().)
+// ---------------------------------------------------------------------------
+
+interface SyncEvent extends ExtendableEvent {
+  tag: string;
+}
+
+self.addEventListener('sync', (event: Event) => {
+  const syncEvent = event as SyncEvent;
+  if (syncEvent.tag === 'sync-assets') {
+    syncEvent.waitUntil(
+      import('./lib/sync').then((mod) => mod.syncQueue()).catch((err) => {
+        console.error('Background sync zlyhal:', err);
+      })
+    );
+  }
+});

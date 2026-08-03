@@ -29,6 +29,7 @@ import type { AssetRecord, Filters } from './types';
 const MapView = lazy(() => import('./components/MapView'));
 const StatsPanel = lazy(() => import('./components/StatsPanel'));
 const AdminPanel = lazy(() => import('./components/AdminPanel'));
+import OnboardingTutorial from './components/OnboardingTutorial';
 
 const EMPTY_FILTERS: Filters = {
   categories: [],
@@ -58,7 +59,7 @@ function ListSkeleton() {
 }
 
 export default function App() {
-  const { user, profile, isAdmin, loading: authLoading } = useAuth();
+  const { user, profile, isAdmin, loading: authLoading, refreshProfile } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [view, setView] = useState<View>('zber');
   const [assets, setAssets] = useState<AssetRecord[]>([]);
@@ -68,6 +69,15 @@ export default function App() {
   const [profileOpen, setProfileOpen] = useState(false);
 
   useEffect(() => {
+    if (!profileOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setProfileOpen(false);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [profileOpen]);
+
+  useEffect(() => {
     let isMounted = true;
 
     async function loadAssets() {
@@ -75,7 +85,7 @@ export default function App() {
       const { data, error } = await supabase
         .from('vlcince_assets')
         .select(
-          'id, created_at, category, subtype, condition, latitude, longitude, note, photo_url, user_id, author:profiles(display_name, contact_email, contact_phone, show_contact, role)'
+          'id, created_at, category, subtype, condition, latitude, longitude, note, photo_url, user_id, author:profiles(display_name, contact_email, contact_phone, show_contact, role), photos:asset_photos(id, asset_id, photo_url, storage_path, user_id, position, created_at)'
         )
         .order('created_at', { ascending: false });
 
@@ -157,6 +167,12 @@ export default function App() {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-slate-50 dark:bg-slate-900">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-[3000] focus:rounded-md focus:bg-white focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-slate-800 focus:shadow-lg"
+      >
+        Preskočiť na hlavný obsah
+      </a>
       <header className="z-20 flex shrink-0 items-center justify-between border-b border-slate-100 bg-[rgb(var(--brand-700))] px-4 pb-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] text-white shadow-sm dark:border-slate-800">
         <div className="flex min-w-0 items-center gap-2">
           <TreePine className="h-6 w-6 shrink-0" />
@@ -167,16 +183,17 @@ export default function App() {
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          <nav className="hidden items-center gap-1 rounded-lg bg-[rgb(var(--brand-800)/40%)] p-1 sm:flex">
+          <nav aria-label="Hlavná navigácia" className="hidden items-center gap-1 rounded-lg bg-[rgb(var(--brand-800)/40%)] p-1 sm:flex">
             {navItems.map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
                 onClick={() => setView(key)}
+                aria-current={view === key ? 'page' : undefined}
                 className={`relative flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition ${
                   view === key ? 'bg-white text-[rgb(var(--brand-800))] shadow-sm' : 'text-[rgb(var(--brand-100))] hover:bg-[rgb(var(--brand-800)/60%)]'
                 }`}
               >
-                <Icon className="h-4 w-4" /> {label}
+                <Icon className="h-4 w-4" aria-hidden="true" /> {label}
                 {key === 'mapa' && attentionCount > 0 && (
                   <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
                     {attentionCount}
@@ -266,7 +283,7 @@ export default function App() {
           </>
         )}
 
-        <main className="min-h-0 flex-1 overflow-y-auto">
+        <main id="main-content" tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto">
           {view === 'zber' && (
             <div className="mx-auto max-w-md pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:pb-4">
               <CollectForm existingAssets={assets} />
@@ -290,7 +307,7 @@ export default function App() {
         </main>
       </div>
 
-      <nav className="z-20 flex shrink-0 border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] dark:border-slate-800 dark:bg-slate-900 sm:hidden">
+      <nav aria-label="Hlavná navigácia" className="z-20 flex shrink-0 border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] dark:border-slate-800 dark:bg-slate-900 sm:hidden">
         {navItems.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -298,11 +315,12 @@ export default function App() {
               setView(key);
               setFiltersOpen(false);
             }}
+            aria-current={view === key ? 'page' : undefined}
             className={`relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[11px] font-medium ${
               view === key ? 'text-[rgb(var(--brand-700))] dark:text-[rgb(var(--brand-400))]' : 'text-slate-400 dark:text-slate-500'
             }`}
           >
-            <Icon className="h-5 w-5" />
+            <Icon className="h-5 w-5" aria-hidden="true" />
             {label}
             {key === 'mapa' && attentionCount > 0 && (
               <span className="absolute right-6 top-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">
@@ -325,6 +343,10 @@ export default function App() {
             <ProfileEditor onClose={() => setProfileOpen(false)} />
           </div>
         </div>
+      )}
+
+      {profile && !profile.has_seen_onboarding && (
+        <OnboardingTutorial onDone={() => refreshProfile()} />
       )}
     </div>
   );

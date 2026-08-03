@@ -5,6 +5,19 @@ Všetky významné zmeny v tomto projekte sú zaznamenané v tomto súbore.
 Formát vychádza z [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 a projekt sa riadi [Semantic Versioning](https://semver.org/lang/sk/).
 
+## [1.1.0] – 2026-08-04
+
+### Pridané
+- **Viacnásobné fotky** pri zázname (až 4), s klientskou kompresiou (max. 1600px, JPEG 80%) pred uploadom
+- **Konfigurovateľné kategórie a stavy** – admin ich môže pridávať/deaktivovať priamo v appke (Admin panel → Kategórie), namiesto pevných hodnôt v databáze
+- **Onboarding tutoriál** – 4-krokový sprievodca pri prvom prihlásení
+- **Cleanup nepoužitých fotiek** – admin nástroj na vymazanie osirotených súborov v Storage
+- **Background Sync API** – offline záznamy sa teraz dokážu odoslať aj po zatvorení appky (nielen kým je otvorená), vďaka natívnemu prehliadačovému mechanizmu
+- **Prístupnosť (a11y)** – skip-link, `aria-current`/`aria-pressed`/`aria-label` na interaktívnych prvkoch, zatváranie modalov klávesou Escape, `role="dialog"` na modaloch
+
+### Zmenené
+- Kategórie/stavy prestali byť pevné databázové enumy - teraz sú to konfigurovateľné tabuľky (`categories`, `conditions`) s FK väzbou
+
 ## [1.0.0] – 2026-08-02
 
 Prvé stabilné vydanie appky Vlčince – Pasport.

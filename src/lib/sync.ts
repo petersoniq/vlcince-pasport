@@ -8,20 +8,24 @@ import type { PendingAsset } from '../types';
 
 let syncInFlight = false;
 
-/** Nahrá fotku (ak existuje) do Supabase Storage a vráti verejnú URL. */
-async function uploadPhoto(deviceLocalId: string, blob: Blob): Promise<string | null> {
-  const fileName = `${deviceLocalId}.jpg`;
+/** Nahrá jednu fotku do Supabase Storage a vráti verejnú URL + cestu. */
+async function uploadOnePhoto(
+  deviceLocalId: string,
+  index: number,
+  blob: Blob
+): Promise<{ url: string; path: string } | null> {
+  const path = `${deviceLocalId}-${index}.jpg`;
   const { error } = await supabase.storage
     .from('asset-photos')
-    .upload(fileName, blob, { contentType: 'image/jpeg', upsert: true });
+    .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
 
   if (error) {
     console.error('Chyba pri nahrávaní fotky:', error.message);
     return null;
   }
 
-  const { data } = supabase.storage.from('asset-photos').getPublicUrl(fileName);
-  return data.publicUrl;
+  const { data } = supabase.storage.from('asset-photos').getPublicUrl(path);
+  return { url: data.publicUrl, path };
 }
 
 async function syncOne(item: PendingAsset): Promise<void> {
@@ -41,31 +45,48 @@ async function syncOne(item: PendingAsset): Promise<void> {
   }
 
   try {
-    let photoUrl: string | null = null;
-    if (item.photo_blob) {
-      photoUrl = await uploadPhoto(item.device_local_id, item.photo_blob);
-    }
+    // Najprv nahraj všetky fotky (nezávisle od insertu záznamu)
+    const uploaded = (
+      await Promise.all(item.photo_blobs.map((blob, i) => uploadOnePhoto(item.device_local_id, i, blob)))
+    ).filter((r): r is { url: string; path: string } => r !== null);
 
     // upsert na device_local_id -> ak sa záznam už dostal na server pri
     // predchádzajúcom (napr. prerušenom) pokuse, nevytvorí sa duplicita
-    const { error } = await supabase.from('vlcince_assets').upsert(
-      {
-        category: item.category,
-        subtype: item.subtype || null,
-        condition: item.condition,
-        latitude: item.latitude,
-        longitude: item.longitude,
-        gps_accuracy_m: item.gps_accuracy_m,
-        note: item.note || null,
-        photo_url: photoUrl,
-        source: 'terenny_zber',
-        device_local_id: item.device_local_id,
-        user_id: item.user_id,
-      },
-      { onConflict: 'device_local_id' }
-    );
+    const { data: assetRow, error } = await supabase
+      .from('vlcince_assets')
+      .upsert(
+        {
+          category: item.category,
+          subtype: item.subtype || null,
+          condition: item.condition,
+          latitude: item.latitude,
+          longitude: item.longitude,
+          gps_accuracy_m: item.gps_accuracy_m,
+          note: item.note || null,
+          photo_url: uploaded[0]?.url ?? null, // spätná kompatibilita - prvá fotka
+          source: 'terenny_zber',
+          device_local_id: item.device_local_id,
+          user_id: item.user_id,
+        },
+        { onConflict: 'device_local_id' }
+      )
+      .select('id')
+      .single();
 
     if (error) throw error;
+
+    // Zapíš všetky fotky do asset_photos (aj tú prvú - photo_url stĺpec je len legacy zrkadlo)
+    if (assetRow && uploaded.length > 0) {
+      await supabase.from('asset_photos').insert(
+        uploaded.map((u, i) => ({
+          asset_id: assetRow.id,
+          photo_url: u.url,
+          storage_path: u.path,
+          user_id: item.user_id,
+          position: i,
+        }))
+      );
+    }
 
     await removeAsset(item.device_local_id);
   } catch (err) {
@@ -102,6 +123,24 @@ export async function syncQueue(): Promise<{ synced: number; failed: number }> {
   }
 
   return { synced, failed };
+}
+
+/** Zaregistruje Background Sync tag - prehliadač (ak podporuje) automaticky
+ *  zobudí Service Worker a spustí syncQueue() aj keď je appka zatvorená.
+ *  Bezpečné volať aj keď prehliadač Background Sync nepodporuje (napr. Safari) -
+ *  vtedy jednoducho nič nerobí, spolieha sa na existujúci setInterval retry. */
+export async function registerBackgroundSync(): Promise<void> {
+  try {
+    if (!('serviceWorker' in navigator)) return;
+    const reg = await navigator.serviceWorker.ready;
+    const syncManager = (reg as ServiceWorkerRegistration & { sync?: { register: (tag: string) => Promise<void> } }).sync;
+    if (syncManager) {
+      await syncManager.register('sync-assets');
+    }
+  } catch {
+    // Background Sync nie je podporovaný alebo zlyhal - ticho ignoruj,
+    // klasický setInterval retry v initAutoSync() to aj tak pokryje.
+  }
 }
 
 /** Zaregistruje automatický sync pri návrate pripojenia a periodický retry. */

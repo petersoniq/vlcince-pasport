@@ -1,15 +1,15 @@
 import { useState, useCallback, useMemo } from 'react';
-import { Camera, Check, Loader2, AlertTriangle } from 'lucide-react';
+import { Camera, Check, Loader2, AlertTriangle, X } from 'lucide-react';
 import LocationBadge, { type LocationState } from './LocationBadge';
-import { CATEGORY_LABELS, CONDITION_LABELS } from '../types';
 import type { AssetCategory, AssetCondition, PendingAsset, AssetRecord } from '../types';
 import { queueAsset } from '../lib/db';
-import { syncQueue } from '../lib/sync';
+import { syncQueue, registerBackgroundSync } from '../lib/sync';
 import { useAuth } from '../lib/auth';
+import { useTaxonomy } from '../lib/taxonomy';
+import { compressImage } from '../lib/imageCompress';
 
-const CATEGORIES = Object.keys(CATEGORY_LABELS) as AssetCategory[];
-const CONDITIONS = Object.keys(CONDITION_LABELS) as AssetCondition[];
 const DUPLICATE_RADIUS_M = 15;
+const MAX_PHOTOS = 4;
 
 function generateLocalId(): string {
   return crypto.randomUUID();
@@ -29,48 +29,69 @@ function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number):
 
 interface Props {
   onSaved?: () => void;
-  /** Aktuálne existujúce záznamy - použité na kontrolu duplicít v okolí polohy. */
   existingAssets?: AssetRecord[];
 }
 
 export default function CollectForm({ onSaved, existingAssets = [] }: Props) {
   const { user } = useAuth();
+  const { categories, conditions, categoryEmoji } = useTaxonomy();
   const [location, setLocation] = useState<LocationState | null>(null);
-  const [category, setCategory] = useState<AssetCategory>('lavicka');
-  const [condition, setCondition] = useState<AssetCondition>('dobry');
+  const [category, setCategory] = useState<AssetCategory>('');
+  const [condition, setCondition] = useState<AssetCondition>('');
   const [subtype, setSubtype] = useState('');
   const [note, setNote] = useState('');
-  const [photo, setPhoto] = useState<Blob | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<{ blob: Blob; preview: string }[]>([]);
+  const [compressing, setCompressing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [duplicateConfirmed, setDuplicateConfirmed] = useState(false);
 
+  // Predvolená kategória/stav = prvá dostupná, akonáhle sa načítajú z DB
+  const effectiveCategory = category || categories[0]?.key || '';
+  const effectiveCondition = condition || conditions[0]?.key || '';
+
   const handleLocationChange = useCallback((loc: LocationState) => setLocation(loc), []);
 
-  // Záznamy rovnakej kategórie v okruhu DUPLICATE_RADIUS_M od aktuálnej polohy
   const nearbyDuplicates = useMemo(() => {
     if (!location?.latitude || !location.longitude) return [];
     return existingAssets.filter(
       (a) =>
-        a.category === category &&
+        a.category === effectiveCategory &&
         distanceMeters(location.latitude!, location.longitude!, a.latitude, a.longitude) <= DUPLICATE_RADIUS_M
     );
-  }, [existingAssets, location, category]);
+  }, [existingAssets, location, effectiveCategory]);
 
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setPhoto(file);
-    setPhotoPreview(URL.createObjectURL(file));
+  const handlePhotosChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+    const remaining = MAX_PHOTOS - photos.length;
+    const toAdd = files.slice(0, remaining);
+
+    setCompressing(true);
+    const compressed = await Promise.all(
+      toAdd.map(async (file) => {
+        const blob = await compressImage(file);
+        return { blob, preview: URL.createObjectURL(blob) };
+      })
+    );
+    setCompressing(false);
+    setPhotos((prev) => [...prev, ...compressed]);
+    e.target.value = '';
+  };
+
+  const removePhoto = (index: number) => {
+    setPhotos((prev) => {
+      URL.revokeObjectURL(prev[index].preview);
+      return prev.filter((_, i) => i !== index);
+    });
   };
 
   const resetForm = () => {
     setSubtype('');
     setNote('');
-    setPhoto(null);
-    setPhotoPreview(null);
-    setCondition('dobry');
+    photos.forEach((p) => URL.revokeObjectURL(p.preview));
+    setPhotos([]);
+    setCondition('');
     setDuplicateConfirmed(false);
   };
 
@@ -81,20 +102,21 @@ export default function CollectForm({ onSaved, existingAssets = [] }: Props) {
     const pending: PendingAsset = {
       device_local_id: generateLocalId(),
       user_id: user.id,
-      category,
+      category: effectiveCategory,
       subtype,
-      condition,
+      condition: effectiveCondition,
       latitude: location.latitude,
       longitude: location.longitude,
       gps_accuracy_m: location.accuracy,
       note,
-      photo_blob: photo,
+      photo_blobs: photos.map((p) => p.blob),
       created_at: new Date().toISOString(),
       sync_status: 'pending',
     };
 
     await queueAsset(pending);
     if (navigator.onLine) syncQueue();
+    registerBackgroundSync();
 
     setSaving(false);
     setSavedMessage(
@@ -117,7 +139,6 @@ export default function CollectForm({ onSaved, existingAssets = [] }: Props) {
       alert('Poloha ešte nie je dostupná, počkaj chvíľu alebo skontroluj GPS.');
       return;
     }
-    // Ak existuje podobný záznam nablízku a používateľ to ešte nepotvrdil, zastav a ukáž varovanie
     if (nearbyDuplicates.length > 0 && !duplicateConfirmed) {
       return;
     }
@@ -131,21 +152,22 @@ export default function CollectForm({ onSaved, existingAssets = [] }: Props) {
       <div>
         <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Kategória</label>
         <div className="grid grid-cols-3 gap-2">
-          {CATEGORIES.map((cat) => (
+          {categories.map((cat) => (
             <button
-              key={cat}
+              key={cat.key}
               type="button"
               onClick={() => {
-                setCategory(cat);
+                setCategory(cat.key);
                 setDuplicateConfirmed(false);
               }}
+              aria-pressed={effectiveCategory === cat.key}
               className={`rounded-lg border px-2 py-2 text-xs font-medium transition ${
-                category === cat
+                effectiveCategory === cat.key
                   ? 'border-[rgb(var(--brand-600))] bg-[rgb(var(--brand-600))] text-white'
                   : 'border-slate-200 bg-white text-slate-600 hover:border-[rgb(var(--brand-300))] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
               }`}
             >
-              {CATEGORY_LABELS[cat]}
+              <span aria-hidden="true">{cat.emoji}</span> {cat.label}
             </button>
           ))}
         </div>
@@ -187,18 +209,19 @@ export default function CollectForm({ onSaved, existingAssets = [] }: Props) {
       <div>
         <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Stav</label>
         <div className="grid grid-cols-2 gap-2">
-          {CONDITIONS.map((cond) => (
+          {conditions.map((cond) => (
             <button
-              key={cond}
+              key={cond.key}
               type="button"
-              onClick={() => setCondition(cond)}
+              onClick={() => setCondition(cond.key)}
+              aria-pressed={effectiveCondition === cond.key}
               className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
-                condition === cond
+                effectiveCondition === cond.key
                   ? 'border-[rgb(var(--brand-600))] bg-[rgb(var(--brand-600))] text-white'
                   : 'border-slate-200 bg-white text-slate-600 hover:border-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
               }`}
             >
-              {CONDITION_LABELS[cond]}
+              {cond.label}
             </button>
           ))}
         </div>
@@ -219,24 +242,40 @@ export default function CollectForm({ onSaved, existingAssets = [] }: Props) {
       </div>
 
       <div>
-        <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Fotografia</label>
-        <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 px-3 py-4 text-sm text-slate-500 hover:border-[rgb(var(--brand-400))] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-          <Camera className="h-5 w-5" />
-          {photoPreview ? 'Zmeniť fotku' : 'Odfotiť / vybrať fotku'}
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={handlePhotoChange}
-            className="hidden"
-          />
+        <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+          Fotografie ({photos.length}/{MAX_PHOTOS})
         </label>
-        {photoPreview && (
-          <img
-            src={photoPreview}
-            alt="náhľad"
-            className="mt-2 h-32 w-full rounded-lg object-cover"
-          />
+        {photos.length > 0 && (
+          <div className="mb-2 grid grid-cols-4 gap-2">
+            {photos.map((p, i) => (
+              <div key={i} className="relative">
+                <img src={p.preview} alt={`náhľad fotky ${i + 1}`} className="h-16 w-full rounded-lg object-cover" />
+                <button
+                  type="button"
+                  onClick={() => removePhoto(i)}
+                  aria-label={`Odstrániť fotku ${i + 1}`}
+                  className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-white shadow"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {photos.length < MAX_PHOTOS && (
+          <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 px-3 py-4 text-sm text-slate-500 hover:border-[rgb(var(--brand-400))] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+            {compressing ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />}
+            {compressing ? 'Spracúvam fotky…' : 'Odfotiť / vybrať fotky'}
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              multiple
+              onChange={handlePhotosChange}
+              className="hidden"
+              disabled={compressing}
+            />
+          </label>
         )}
       </div>
 
@@ -250,7 +289,7 @@ export default function CollectForm({ onSaved, existingAssets = [] }: Props) {
       </button>
 
       {savedMessage && (
-        <div className="rounded-lg bg-[rgb(var(--brand-50))] px-3 py-2 text-center text-sm text-[rgb(var(--brand-700))] dark:bg-[rgb(var(--brand-950))] dark:text-[rgb(var(--brand-300))]">
+        <div role="status" className="rounded-lg bg-[rgb(var(--brand-50))] px-3 py-2 text-center text-sm text-[rgb(var(--brand-700))] dark:bg-[rgb(var(--brand-950))] dark:text-[rgb(var(--brand-300))]">
           {savedMessage}
         </div>
       )}

@@ -1,16 +1,7 @@
 import { Search } from 'lucide-react';
-import {
-  CATEGORY_LABELS,
-  CONDITION_LABELS,
-  CONDITION_COLORS,
-  type AssetCategory,
-  type AssetCondition,
-  type Filters,
-} from '../types';
+import type { AssetCategory, AssetCondition, Filters } from '../types';
 import { useAuth } from '../lib/auth';
-
-const CATEGORIES = Object.keys(CATEGORY_LABELS) as AssetCategory[];
-const CONDITIONS = Object.keys(CONDITION_LABELS) as AssetCondition[];
+import { useTaxonomy } from '../lib/taxonomy';
 
 interface Props {
   filters: Filters;
@@ -21,6 +12,7 @@ interface Props {
 
 export default function FilterPanel({ filters, onChange, totalCount, filteredCount }: Props) {
   const { user } = useAuth();
+  const { categories, conditions } = useTaxonomy();
 
   const toggleCategory = (cat: AssetCategory): void => {
     const next = filters.categories.includes(cat)
@@ -99,17 +91,18 @@ export default function FilterPanel({ filters, onChange, totalCount, filteredCou
           Kategória
         </h3>
         <div className="flex flex-wrap gap-1.5">
-          {CATEGORIES.map((cat) => (
+          {categories.map((cat) => (
             <button
-              key={cat}
-              onClick={() => toggleCategory(cat)}
+              key={cat.key}
+              onClick={() => toggleCategory(cat.key)}
+              aria-pressed={filters.categories.includes(cat.key)}
               className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
-                filters.categories.includes(cat)
+                filters.categories.includes(cat.key)
                   ? 'border-[rgb(var(--brand-600))] bg-[rgb(var(--brand-600))] text-white'
                   : 'border-slate-200 bg-white text-slate-600 hover:border-[rgb(var(--brand-300))] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
               }`}
             >
-              {CATEGORY_LABELS[cat]}
+              {cat.emoji} {cat.label}
             </button>
           ))}
         </div>
@@ -120,22 +113,19 @@ export default function FilterPanel({ filters, onChange, totalCount, filteredCou
           Stav
         </h3>
         <div className="flex flex-col gap-1.5">
-          {CONDITIONS.map((cond) => (
+          {conditions.map((cond) => (
             <label
-              key={cond}
+              key={cond.key}
               className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
             >
               <input
                 type="checkbox"
-                checked={filters.conditions.includes(cond)}
-                onChange={() => toggleCondition(cond)}
+                checked={filters.conditions.includes(cond.key)}
+                onChange={() => toggleCondition(cond.key)}
                 className="h-4 w-4 rounded border-slate-300 accent-[rgb(var(--brand-600))] dark:border-slate-600"
               />
-              <span
-                className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: CONDITION_COLORS[cond] }}
-              />
-              {CONDITION_LABELS[cond]}
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: cond.color }} />
+              {cond.label}
             </label>
           ))}
         </div>
