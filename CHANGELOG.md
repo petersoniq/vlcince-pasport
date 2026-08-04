@@ -5,6 +5,12 @@ Všetky významné zmeny v tomto projekte sú zaznamenané v tomto súbore.
 Formát vychádza z [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 a projekt sa riadi [Semantic Versioning](https://semver.org/lang/sk/).
 
+## [1.2.1] – 2026-08-05
+
+### Opravené
+- Text kategórií a stavov v Admin paneli (záložka "Kategórie") bol v tmavom režime tmavý a nečitateľný na tmavom pozadí - chýbala farba textu na štítkoch aj vstupných poliach pre pridávanie nových kategórií/stavov
+- GitHub Releases pre v1.1.0 a v1.2.0 chýbali (existovali len git tagy) - doplnené so správnym obsahom changelogu
+
 ## [1.2.0] – 2026-08-04
 
 Prvá vlna nového vizuálneho dizajnu (podľa dizajn manuálu pre svetlú/tmavú tému).

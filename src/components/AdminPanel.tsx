@@ -471,7 +471,7 @@ function TaxonomyManager({
         <div className="flex flex-col gap-1.5">
           {categories.map((c) => (
             <div key={c.key} className="flex items-center justify-between rounded-lg border border-slate-100 bg-white p-2 text-sm dark:border-slate-800 dark:bg-slate-800">
-              <span>{c.emoji} {c.label}</span>
+              <span className="text-slate-700 dark:text-slate-200">{c.emoji} {c.label}</span>
               <button
                 onClick={() => toggleActive('categories', c.key, c.active)}
                 disabled={busy}
@@ -487,7 +487,7 @@ function TaxonomyManager({
             type="text"
             value={newCatEmoji}
             onChange={(e) => setNewCatEmoji(e.target.value)}
-            className="w-14 rounded-md border border-slate-200 px-2 py-1.5 text-center text-sm dark:border-slate-700 dark:bg-slate-800"
+            className="w-14 rounded-md border border-slate-200 px-2 py-1.5 text-center text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
             aria-label="Emoji novej kategórie"
           />
           <input
@@ -495,7 +495,7 @@ function TaxonomyManager({
             value={newCatLabel}
             onChange={(e) => setNewCatLabel(e.target.value)}
             placeholder="Názov novej kategórie…"
-            className="flex-1 rounded-md border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-800"
+            className="flex-1 rounded-md border border-slate-200 px-2 py-1.5 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
           />
           <button
             onClick={addCategory}
@@ -512,7 +512,7 @@ function TaxonomyManager({
         <div className="flex flex-col gap-1.5">
           {conditions.map((c) => (
             <div key={c.key} className="flex items-center justify-between rounded-lg border border-slate-100 bg-white p-2 text-sm dark:border-slate-800 dark:bg-slate-800">
-              <span className="flex items-center gap-2">
+              <span className="flex items-center gap-2 text-slate-700 dark:text-slate-200">
                 <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: c.color }} />
                 {c.label}
               </span>
@@ -539,7 +539,7 @@ function TaxonomyManager({
             value={newCondLabel}
             onChange={(e) => setNewCondLabel(e.target.value)}
             placeholder="Názov nového stavu…"
-            className="flex-1 rounded-md border border-slate-200 px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-800"
+            className="flex-1 rounded-md border border-slate-200 px-2 py-1.5 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
           />
           <button
             onClick={addCondition}
