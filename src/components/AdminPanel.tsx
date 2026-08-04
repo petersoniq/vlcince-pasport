@@ -12,18 +12,21 @@ import {
   Tags,
   Plus,
   Sparkles,
+  LayoutDashboard,
+  Clock,
+  Award,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { useTaxonomy } from '../lib/taxonomy';
 import type { AssetRecord, AssetCondition, Profile } from '../types';
 
-type Tab = 'users' | 'assets' | 'taxonomy';
+type Tab = 'overview' | 'users' | 'assets' | 'taxonomy';
 
 export default function AdminPanel() {
   const { user: currentUser } = useAuth();
   const { categories, conditions, categoryLabel, conditionLabel, conditionColor, refresh: refreshTaxonomy } = useTaxonomy();
-  const [tab, setTab] = useState<Tab>('users');
+  const [tab, setTab] = useState<Tab>('overview');
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [assets, setAssets] = useState<AssetRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -170,7 +173,16 @@ export default function AdminPanel() {
 
   return (
     <div className="flex flex-col gap-4 p-4">
-      <div className="flex gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
+      <div className="flex gap-1 overflow-x-auto rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
+        <button
+          onClick={() => setTab('overview')}
+          aria-pressed={tab === 'overview'}
+          className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md py-1.5 text-sm font-medium ${
+            tab === 'overview' ? 'bg-white shadow-sm dark:bg-slate-700' : 'text-slate-500 dark:text-slate-400'
+          }`}
+        >
+          <LayoutDashboard className="h-4 w-4" /> Prehľad
+        </button>
         <button
           onClick={() => setTab('users')}
           aria-pressed={tab === 'users'}
@@ -199,6 +211,16 @@ export default function AdminPanel() {
           <Tags className="h-4 w-4" /> Kategórie
         </button>
       </div>
+
+      {tab === 'overview' && (
+        <DashboardOverview
+          assets={assets}
+          profiles={profiles}
+          categoryLabel={categoryLabel}
+          conditionLabel={conditionLabel}
+          conditionColor={conditionColor}
+        />
+      )}
 
       {tab === 'users' && (
         <div className="flex flex-col gap-2">
@@ -526,6 +548,148 @@ function TaxonomyManager({
           >
             <Plus className="h-3.5 w-3.5" /> Pridať
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Prehľadová dashboard záložka - štatistické karty + posledné kritické hlásenia,
+ *  podľa dizajn manuálu (karty s celkovým počtom, rozdelením stavov,
+ *  najaktívnejšími zberačmi a časom poslednej aktualizácie). */
+function DashboardOverview({
+  assets,
+  profiles,
+  categoryLabel,
+  conditionLabel,
+  conditionColor,
+}: {
+  assets: AssetRecord[];
+  profiles: Profile[];
+  categoryLabel: (key: string) => string;
+  conditionLabel: (key: string) => string;
+  conditionColor: (key: string) => string;
+}) {
+  const statusBreakdown = useMemo(() => {
+    const counts = new Map<string, number>();
+    assets.forEach((a) => counts.set(a.condition, (counts.get(a.condition) ?? 0) + 1));
+    return Array.from(counts.entries()).map(([key, count]) => ({
+      key,
+      count,
+      label: conditionLabel(key),
+      color: conditionColor(key),
+    }));
+  }, [assets, conditionLabel, conditionColor]);
+
+  const topCollectors = useMemo(() => {
+    const counts = new Map<string, { name: string; avatar: string | null; count: number }>();
+    assets.forEach((a) => {
+      if (!a.user_id) return;
+      const existing = counts.get(a.user_id);
+      const profile = profiles.find((p) => p.id === a.user_id);
+      if (existing) existing.count++;
+      else counts.set(a.user_id, { name: profile?.display_name || 'Anonym', avatar: profile?.avatar_url ?? null, count: 1 });
+    });
+    return Array.from(counts.values())
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 3);
+  }, [assets, profiles]);
+
+  const lastUpdate = useMemo(() => {
+    if (assets.length === 0) return null;
+    return assets.reduce((latest, a) => (a.created_at > latest ? a.created_at : latest), assets[0].created_at);
+  }, [assets]);
+
+  const recentCritical = useMemo(
+    () => assets.filter((a) => a.condition === 'poskodeny' || a.condition === 'chybajuci').slice(0, 8),
+    [assets]
+  );
+
+  const totalCount = assets.length;
+  const maxStatusCount = Math.max(1, ...statusBreakdown.map((s) => s.count));
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-xl border border-slate-100 bg-white p-3 dark:border-slate-800 dark:bg-slate-800">
+          <p className="text-2xl font-bold text-slate-800 dark:text-slate-100">{totalCount}</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500">Celkovo záznamov</p>
+        </div>
+
+        <div className="rounded-xl border border-slate-100 bg-white p-3 dark:border-slate-800 dark:bg-slate-800">
+          <p className="mb-1 text-xs font-medium text-slate-500 dark:text-slate-400">Stav záznamov</p>
+          <div className="flex h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+            {statusBreakdown.map((s) => (
+              <div
+                key={s.key}
+                style={{ width: `${(s.count / maxStatusCount) * 100 * (1 / statusBreakdown.length)}%`, backgroundColor: s.color }}
+              />
+            ))}
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5">
+            {statusBreakdown.map((s) => (
+              <span key={s.key} className="flex items-center gap-1 text-[10px] text-slate-500 dark:text-slate-400">
+                <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: s.color }} />
+                {s.label} {s.count}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate-100 bg-white p-3 dark:border-slate-800 dark:bg-slate-800">
+          <p className="mb-1.5 flex items-center gap-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+            <Award className="h-3.5 w-3.5" /> Najaktívnejší zberači
+          </p>
+          {topCollectors.length === 0 && <p className="text-xs text-slate-400">Zatiaľ žiadne dáta</p>}
+          <div className="flex flex-col gap-1">
+            {topCollectors.map((c) => (
+              <div key={c.name} className="flex items-center gap-1.5 text-xs">
+                <div className="flex h-5 w-5 items-center justify-center overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+                  {c.avatar ? <img src={c.avatar} alt="" className="h-full w-full object-cover" /> : <Users className="h-3 w-3 text-slate-400" />}
+                </div>
+                <span className="truncate text-slate-600 dark:text-slate-300">{c.name}</span>
+                <span className="ml-auto text-slate-400">{c.count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate-100 bg-white p-3 dark:border-slate-800 dark:bg-slate-800">
+          <p className="mb-1.5 flex items-center gap-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+            <Clock className="h-3.5 w-3.5" /> Posledná aktualizácia
+          </p>
+          <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
+            {lastUpdate ? new Date(lastUpdate).toLocaleString('sk-SK') : '–'}
+          </p>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">Posledné nahlásené požiadavky</h3>
+        {recentCritical.length === 0 && (
+          <p className="text-xs text-slate-400 dark:text-slate-500">Žiadne poškodené/chýbajúce záznamy 🎉</p>
+        )}
+        <div className="flex flex-col gap-1.5">
+          {recentCritical.map((a) => (
+            <div
+              key={a.id}
+              className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 bg-white p-2.5 text-xs dark:border-slate-800 dark:bg-slate-800"
+            >
+              <div className="min-w-0">
+                <p className="truncate font-medium text-slate-700 dark:text-slate-200">
+                  {categoryLabel(a.category)}
+                  {a.subtype && <span className="font-normal text-slate-400"> · {a.subtype}</span>}
+                </p>
+                <p className="text-slate-400 dark:text-slate-500">{new Date(a.created_at).toLocaleString('sk-SK')}</p>
+              </div>
+              <span
+                className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium text-white"
+                style={{ backgroundColor: conditionColor(a.condition) }}
+              >
+                {conditionLabel(a.condition)}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
     </div>

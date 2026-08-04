@@ -5,6 +5,21 @@ Všetky významné zmeny v tomto projekte sú zaznamenané v tomto súbore.
 Formát vychádza z [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 a projekt sa riadi [Semantic Versioning](https://semver.org/lang/sk/).
 
+## [1.2.0] – 2026-08-04
+
+Prvá vlna nového vizuálneho dizajnu (podľa dizajn manuálu pre svetlú/tmavú tému).
+Farebná téma appky (prepínač zelená/modrá/fialová/ružová) zostáva plne funkčná.
+
+### Pridané
+- **Zberný formulár**: kartové tlačidlá kategórií (ikona + text), ikony pri stavoch, zoskupená sekcia "Detail a foto"
+- **GPS fallback**: ak signál zlyhá, appka namiesto zablokovania použije poslednú známu polohu z tohto zariadenia (s jasným upozornením)
+- **Nastavenia používateľa**: prehľadné karty Profil / Nastavenie aplikácie / O aplikácii, iOS-štýl prepínače, možnosť zmeny hesla
+- **Admin dashboard**: nová záložka "Prehľad" so štatistickými kartami (celkový počet, rozdelenie stavov, najaktívnejší zberači, posledná aktualizácia) a zoznamom posledných kritických hlásení
+
+### Poznámka
+Heatmapa na mape (z dizajn manuálu) zatiaľ nie je implementovaná - vyžaduje ďalšiu knižnicu
+a samostatný krok, plánované do ďalšej verzie.
+
 ## [1.1.0] – 2026-08-04
 
 ### Pridané

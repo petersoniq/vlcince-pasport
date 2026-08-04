@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
-import { Loader2, AlertTriangle, ChevronDown } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Loader2, AlertTriangle, ChevronDown, History } from 'lucide-react';
 
 export interface LocationState {
   latitude: number | null;
   longitude: number | null;
   accuracy: number | null;
   status: 'locating' | 'ok' | 'error';
+  /** true = súradnice sú z poslednej známej polohy (GPS práve zlyhal/nedostupný) */
+  stale?: boolean;
   errorMessage?: string;
 }
 
@@ -74,8 +76,12 @@ function RadarPulse({ color }: { color: string }) {
   );
 }
 
+const LAST_KNOWN_KEY = 'vlcince-last-known-position';
+
 /** Zobrazuje a priebežne sleduje GPS polohu (watchPosition – presnejšie ako
- *  jednorazový getCurrentPosition, najmä pod strechami stromov v teréne). */
+ *  jednorazový getCurrentPosition, najmä pod strechami stromov v teréne).
+ *  Ak GPS zlyhá, appka namiesto zablokovania zberu ponúkne poslednú známu
+ *  polohu (uloženú v tomto zariadení) s jasným upozornením, že je "stale". */
 export default function LocationBadge({ onChange }: Props) {
   const [state, setState] = useState<LocationState>({
     latitude: null,
@@ -84,6 +90,16 @@ export default function LocationBadge({ onChange }: Props) {
     status: 'locating',
   });
   const [showCoords, setShowCoords] = useState(false);
+  const lastKnownRef = useRef<{ latitude: number; longitude: number; accuracy: number } | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LAST_KNOWN_KEY);
+      if (raw) lastKnownRef.current = JSON.parse(raw);
+    } catch {
+      // ignoruj poškodené dáta v localStorage
+    }
+  }, []);
 
   useEffect(() => {
     if (!('geolocation' in navigator)) {
@@ -109,17 +125,38 @@ export default function LocationBadge({ onChange }: Props) {
         };
         setState(next);
         onChange(next);
+        lastKnownRef.current = { latitude: next.latitude!, longitude: next.longitude!, accuracy: next.accuracy! };
+        try {
+          localStorage.setItem(LAST_KNOWN_KEY, JSON.stringify(lastKnownRef.current));
+        } catch {
+          // localStorage môže byť plné/zakázané - nič sa nedeje, len sa nebude cachovať
+        }
       },
       (err) => {
-        const next: LocationState = {
-          latitude: null,
-          longitude: null,
-          accuracy: null,
-          status: 'error',
-          errorMessage: err.message,
-        };
-        setState(next);
-        onChange(next);
+        // GPS zlyhal - ak máme poslednú známu polohu z tohto zariadenia, použi ju
+        // (s jasným upozornením), namiesto úplného zablokovania zberu.
+        if (lastKnownRef.current) {
+          const next: LocationState = {
+            latitude: lastKnownRef.current.latitude,
+            longitude: lastKnownRef.current.longitude,
+            accuracy: lastKnownRef.current.accuracy,
+            status: 'ok',
+            stale: true,
+            errorMessage: err.message,
+          };
+          setState(next);
+          onChange(next);
+        } else {
+          const next: LocationState = {
+            latitude: null,
+            longitude: null,
+            accuracy: null,
+            status: 'error',
+            errorMessage: err.message,
+          };
+          setState(next);
+          onChange(next);
+        }
       },
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
     );
@@ -151,6 +188,35 @@ export default function LocationBadge({ onChange }: Props) {
           <p className="text-sm font-medium text-red-700 dark:text-red-300">Poloha nedostupná</p>
           <p className="text-xs text-red-500 dark:text-red-400">{state.errorMessage}</p>
         </div>
+      </div>
+    );
+  }
+
+  if (state.stale) {
+    return (
+      <div className="rounded-xl bg-amber-50 px-3 py-2.5 dark:bg-amber-950">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900">
+            <History className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">Poloha nedostupná</p>
+            <p className="text-xs text-amber-600 dark:text-amber-500">Používa sa posledná známa poloha z tohto zariadenia</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowCoords((v) => !v)}
+            className="shrink-0 rounded-full p-1.5 text-amber-500 hover:bg-black/5 dark:hover:bg-white/5"
+            aria-label="Zobraziť súradnice"
+          >
+            <ChevronDown className={`h-4 w-4 transition-transform ${showCoords ? 'rotate-180' : ''}`} />
+          </button>
+        </div>
+        {showCoords && (
+          <div className="mt-2 border-t border-black/5 pt-2 text-center font-mono text-[11px] text-amber-600 dark:border-white/10 dark:text-amber-500">
+            {state.latitude?.toFixed(6)}, {state.longitude?.toFixed(6)}
+          </div>
+        )}
       </div>
     );
   }

@@ -7,6 +7,7 @@ import { syncQueue, registerBackgroundSync } from '../lib/sync';
 import { useAuth } from '../lib/auth';
 import { useTaxonomy } from '../lib/taxonomy';
 import { compressImage } from '../lib/imageCompress';
+import { getConditionIcon } from '../lib/conditionIcons';
 
 const DUPLICATE_RADIUS_M = 15;
 const MAX_PHOTOS = 4;
@@ -161,13 +162,14 @@ export default function CollectForm({ onSaved, existingAssets = [] }: Props) {
                 setDuplicateConfirmed(false);
               }}
               aria-pressed={effectiveCategory === cat.key}
-              className={`rounded-lg border px-2 py-2 text-xs font-medium transition ${
+              className={`flex flex-col items-center gap-1 rounded-xl border px-2 py-3 text-xs font-medium transition ${
                 effectiveCategory === cat.key
-                  ? 'border-[rgb(var(--brand-600))] bg-[rgb(var(--brand-600))] text-white'
+                  ? 'border-[rgb(var(--brand-600))] bg-[rgb(var(--brand-50))] text-[rgb(var(--brand-700))] dark:bg-[rgb(var(--brand-950))] dark:text-[rgb(var(--brand-300))]'
                   : 'border-slate-200 bg-white text-slate-600 hover:border-[rgb(var(--brand-300))] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
               }`}
             >
-              <span aria-hidden="true">{cat.emoji}</span> {cat.label}
+              <span className="text-xl" aria-hidden="true">{cat.emoji}</span>
+              <span className="text-center leading-tight">{cat.label}</span>
             </button>
           ))}
         </div>
@@ -193,90 +195,100 @@ export default function CollectForm({ onSaved, existingAssets = [] }: Props) {
       )}
 
       <div>
-        <label htmlFor="subtype" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
-          Podtyp (voliteľné)
-        </label>
-        <input
-          id="subtype"
-          type="text"
-          value={subtype}
-          onChange={(e) => setSubtype(e.target.value)}
-          placeholder="napr. lavička s operadlom, smrek pichľavý…"
-          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-[rgb(var(--brand-500))] focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-        />
-      </div>
-
-      <div>
         <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Stav</label>
         <div className="grid grid-cols-2 gap-2">
-          {conditions.map((cond) => (
-            <button
-              key={cond.key}
-              type="button"
-              onClick={() => setCondition(cond.key)}
-              aria-pressed={effectiveCondition === cond.key}
-              className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
-                effectiveCondition === cond.key
-                  ? 'border-[rgb(var(--brand-600))] bg-[rgb(var(--brand-600))] text-white'
-                  : 'border-slate-200 bg-white text-slate-600 hover:border-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
-              }`}
-            >
-              {cond.label}
-            </button>
-          ))}
+          {conditions.map((cond) => {
+            const Icon = getConditionIcon(cond.key);
+            return (
+              <button
+                key={cond.key}
+                type="button"
+                onClick={() => setCondition(cond.key)}
+                aria-pressed={effectiveCondition === cond.key}
+                className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                  effectiveCondition === cond.key
+                    ? 'border-[rgb(var(--brand-600))] bg-[rgb(var(--brand-600))] text-white'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                }`}
+              >
+                <Icon className="h-4 w-4" aria-hidden="true" />
+                {cond.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      <div>
-        <label htmlFor="note" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
-          Poznámka (voliteľné)
-        </label>
-        <textarea
-          id="note"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          rows={3}
-          placeholder="Doplňujúce informácie…"
-          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-[rgb(var(--brand-500))] focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
-        />
-      </div>
+      <div className="flex flex-col gap-3 rounded-xl border border-slate-100 p-3 dark:border-slate-800">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">
+          Detail a foto
+        </h3>
 
-      <div>
-        <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
-          Fotografie ({photos.length}/{MAX_PHOTOS})
-        </label>
-        {photos.length > 0 && (
-          <div className="mb-2 grid grid-cols-4 gap-2">
-            {photos.map((p, i) => (
-              <div key={i} className="relative">
-                <img src={p.preview} alt={`náhľad fotky ${i + 1}`} className="h-16 w-full rounded-lg object-cover" />
-                <button
-                  type="button"
-                  onClick={() => removePhoto(i)}
-                  aria-label={`Odstrániť fotku ${i + 1}`}
-                  className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-white shadow"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        {photos.length < MAX_PHOTOS && (
-          <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 px-3 py-4 text-sm text-slate-500 hover:border-[rgb(var(--brand-400))] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
-            {compressing ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />}
-            {compressing ? 'Spracúvam fotky…' : 'Odfotiť / vybrať fotky'}
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              multiple
-              onChange={handlePhotosChange}
-              className="hidden"
-              disabled={compressing}
-            />
+        <div>
+          <label htmlFor="subtype" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+            Podtyp (voliteľné)
           </label>
-        )}
+          <input
+            id="subtype"
+            type="text"
+            value={subtype}
+            onChange={(e) => setSubtype(e.target.value)}
+            placeholder="napr. lavička s operadlom, smrek pichľavý…"
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-[rgb(var(--brand-500))] focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="note" className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+            Poznámka (voliteľné)
+          </label>
+          <textarea
+            id="note"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={3}
+            placeholder="Doplňujúce informácie…"
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-[rgb(var(--brand-500))] focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+          />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+            Fotografie ({photos.length}/{MAX_PHOTOS})
+          </label>
+          {photos.length > 0 && (
+            <div className="mb-2 grid grid-cols-4 gap-2">
+              {photos.map((p, i) => (
+                <div key={i} className="relative">
+                  <img src={p.preview} alt={`náhľad fotky ${i + 1}`} className="h-16 w-full rounded-lg object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => removePhoto(i)}
+                    aria-label={`Odstrániť fotku ${i + 1}`}
+                    className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-white shadow"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {photos.length < MAX_PHOTOS && (
+            <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 px-3 py-4 text-sm text-slate-500 hover:border-[rgb(var(--brand-400))] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400">
+              {compressing ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />}
+              {compressing ? 'Spracúvam fotky…' : 'Odfotiť alebo vybrať fotku z galérie'}
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                multiple
+                onChange={handlePhotosChange}
+                className="hidden"
+                disabled={compressing}
+              />
+            </label>
+          )}
+        </div>
       </div>
 
       <button
