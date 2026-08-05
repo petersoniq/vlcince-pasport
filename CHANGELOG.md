@@ -5,6 +5,11 @@ Všetky významné zmeny v tomto projekte sú zaznamenané v tomto súbore.
 Formát vychádza z [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 a projekt sa riadi [Semantic Versioning](https://semver.org/lang/sk/).
 
+## [1.3.1] – 2026-08-05
+
+### Opravené
+- Tlačidlo prepínania heatmapy prekrývalo Leaflet zoom +/− ovládač (bolo umiestnené na rovnaké miesto vľavo hore) - presunuté vpravo hore pod legendu
+
 ## [1.3.0] – 2026-08-05
 
 Druhá vlna nového vizuálneho dizajnu (heatmapa + mini-mapa polohy).

@@ -825,7 +825,7 @@ export default function MapView({ assets, onAssetDeleted, onAssetUpdated }: Prop
           onClick={() => setHeatmapView((v) => !v)}
           aria-pressed={heatmapView}
           title={heatmapView ? 'Zobraziť značky' : 'Zobraziť heatmapu hlásení'}
-          className={`absolute left-4 top-4 z-[1000] flex h-9 w-9 items-center justify-center rounded-full shadow-lg transition ${
+          className={`absolute right-4 top-16 z-[1000] flex h-9 w-9 items-center justify-center rounded-full shadow-lg transition ${
             heatmapView
               ? 'bg-[rgb(var(--brand-600))] text-white'
               : 'bg-white text-slate-600 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300'
