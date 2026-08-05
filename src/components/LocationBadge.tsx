@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { Loader2, AlertTriangle, ChevronDown, History } from 'lucide-react';
+
+const LocationMiniMap = lazy(() => import('./LocationMiniMap'));
 
 export interface LocationState {
   latitude: number | null;
@@ -217,6 +219,14 @@ export default function LocationBadge({ onChange }: Props) {
             {state.latitude?.toFixed(6)}, {state.longitude?.toFixed(6)}
           </div>
         )}
+
+        {state.latitude && state.longitude && (
+          <div className="mt-2">
+            <Suspense fallback={<div className="h-28 w-full animate-pulse rounded-xl bg-amber-100 dark:bg-amber-900" />}>
+              <LocationMiniMap latitude={state.latitude} longitude={state.longitude} accuracyColor="#d97706" />
+            </Suspense>
+          </div>
+        )}
       </div>
     );
   }
@@ -249,6 +259,14 @@ export default function LocationBadge({ onChange }: Props) {
       {showCoords && (
         <div className="mt-2 border-t border-black/5 pt-2 text-center font-mono text-[11px] text-slate-500 dark:border-white/10 dark:text-slate-400">
           {state.latitude?.toFixed(6)}, {state.longitude?.toFixed(6)}
+        </div>
+      )}
+
+      {state.latitude && state.longitude && (
+        <div className="mt-2">
+          <Suspense fallback={<div className="h-28 w-full animate-pulse rounded-xl bg-slate-200 dark:bg-slate-700" />}>
+            <LocationMiniMap latitude={state.latitude} longitude={state.longitude} accuracyColor={meta.color} />
+          </Suspense>
         </div>
       )}
     </div>

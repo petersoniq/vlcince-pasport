@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import 'leaflet.heat';
 import {
   Trash2,
   Pencil,
@@ -21,6 +22,8 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Flame,
+  MapPin,
 } from 'lucide-react';
 import type { AssetRecord, AssetCategory, AssetCondition, StatusHistoryEntry, AssetPhoto } from '../types';
 import { useAuth } from '../lib/auth';
@@ -587,6 +590,24 @@ function LocateControl() {
 }
 
 /** Legenda farieb stavu - plávajúci panel, dá sa zbaliť. */
+/** Heatmapa hustoty hlásení - vizualizuje, kde sa kumulujú poškodené/chýbajúce
+ *  záznamy (užitočné pre admina pri plánovaní údržby). Vypnutá defaultne,
+ *  zapína sa tlačidlom - vtedy sa skryjú markery a zobrazí sa len teplotná mapa. */
+function HeatmapLayer({ points }: { points: [number, number, number][] }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (points.length === 0) return;
+    const heat = L.heatLayer(points, { radius: 28, blur: 22, maxZoom: 18 });
+    heat.addTo(map);
+    return () => {
+      map.removeLayer(heat);
+    };
+  }, [map, points]);
+
+  return null;
+}
+
 function Legend() {
   const { conditions } = useTaxonomy();
   const [open, setOpen] = useState(false);
@@ -688,6 +709,15 @@ export default function MapView({ assets, onAssetDeleted, onAssetUpdated }: Prop
   const { categoryEmoji, conditionColor } = useTaxonomy();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<EditDraft | null>(null);
+  const [heatmapView, setHeatmapView] = useState(false);
+
+  const heatPoints = useMemo<[number, number, number][]>(
+    () =>
+      assets
+        .filter((a) => a.condition === 'poskodeny' || a.condition === 'chybajuci')
+        .map((a) => [a.latitude, a.longitude, a.condition === 'chybajuci' ? 1 : 0.6]),
+    [assets]
+  );
 
   const startEdit = (asset: AssetRecord) => {
     setEditingId(asset.id);
@@ -741,51 +771,68 @@ export default function MapView({ assets, onAssetDeleted, onAssetUpdated }: Prop
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-        <MarkerClusterGroup chunkedLoading maxClusterRadius={50}>
-          {assets.map((asset) => {
-            const isEditing = editingId === asset.id;
-            const position: L.LatLngExpression =
-              isEditing && draft?.position ? draft.position : [asset.latitude, asset.longitude];
-            const displayCategory = isEditing && draft ? draft.category : asset.category;
-            const displayCondition = isEditing && draft ? draft.condition : asset.condition;
+        {heatmapView ? (
+          <HeatmapLayer points={heatPoints} />
+        ) : (
+          <MarkerClusterGroup chunkedLoading maxClusterRadius={50}>
+            {assets.map((asset) => {
+              const isEditing = editingId === asset.id;
+              const position: L.LatLngExpression =
+                isEditing && draft?.position ? draft.position : [asset.latitude, asset.longitude];
+              const displayCategory = isEditing && draft ? draft.category : asset.category;
+              const displayCondition = isEditing && draft ? draft.condition : asset.condition;
 
-            return (
-              <Marker
-                key={asset.id}
-                position={position}
-                icon={icons(displayCategory, displayCondition, isEditing)}
-                draggable={isEditing}
-                eventHandlers={
-                  isEditing
-                    ? {
-                        dragend: (e) => {
-                          const marker = e.target as L.Marker;
-                          setDraft((d) => (d ? { ...d, position: marker.getLatLng() } : d));
-                        },
-                      }
-                    : undefined
-                }
-              >
-                <Popup autoClose={false} closeOnClick={false} maxHeight={360}>
-                  <AssetPopupContent
-                    asset={asset}
-                    onAssetDeleted={onAssetDeleted}
-                    onAssetUpdated={onAssetUpdated}
-                    isEditing={isEditing}
-                    draft={isEditing ? draft : null}
-                    onStartEdit={() => startEdit(asset)}
-                    onChangeDraft={setDraft}
-                    onCancelEdit={cancelEdit}
-                  />
-                </Popup>
-              </Marker>
-            );
-          })}
-        </MarkerClusterGroup>
+              return (
+                <Marker
+                  key={asset.id}
+                  position={position}
+                  icon={icons(displayCategory, displayCondition, isEditing)}
+                  draggable={isEditing}
+                  eventHandlers={
+                    isEditing
+                      ? {
+                          dragend: (e) => {
+                            const marker = e.target as L.Marker;
+                            setDraft((d) => (d ? { ...d, position: marker.getLatLng() } : d));
+                          },
+                        }
+                      : undefined
+                  }
+                >
+                  <Popup autoClose={false} closeOnClick={false} maxHeight={360}>
+                    <AssetPopupContent
+                      asset={asset}
+                      onAssetDeleted={onAssetDeleted}
+                      onAssetUpdated={onAssetUpdated}
+                      isEditing={isEditing}
+                      draft={isEditing ? draft : null}
+                      onStartEdit={() => startEdit(asset)}
+                      onChangeDraft={setDraft}
+                      onCancelEdit={cancelEdit}
+                    />
+                  </Popup>
+                </Marker>
+              );
+            })}
+          </MarkerClusterGroup>
+        )}
 
         <LocateControl />
         <Legend />
         <OfflineDownloadControl />
+
+        <button
+          onClick={() => setHeatmapView((v) => !v)}
+          aria-pressed={heatmapView}
+          title={heatmapView ? 'Zobraziť značky' : 'Zobraziť heatmapu hlásení'}
+          className={`absolute left-4 top-4 z-[1000] flex h-9 w-9 items-center justify-center rounded-full shadow-lg transition ${
+            heatmapView
+              ? 'bg-[rgb(var(--brand-600))] text-white'
+              : 'bg-white text-slate-600 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300'
+          }`}
+        >
+          {heatmapView ? <MapPin className="h-4 w-4" /> : <Flame className="h-4 w-4" />}
+        </button>
       </MapContainer>
     </div>
   );

@@ -5,6 +5,17 @@ Všetky významné zmeny v tomto projekte sú zaznamenané v tomto súbore.
 Formát vychádza z [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 a projekt sa riadi [Semantic Versioning](https://semver.org/lang/sk/).
 
+## [1.3.0] – 2026-08-05
+
+Druhá vlna nového vizuálneho dizajnu (heatmapa + mini-mapa polohy).
+
+### Pridané
+- **Heatmapa hustoty hlásení** na mape – prepínacie tlačidlo (plameň vpravo hore) zobrazí tepelnú mapu poškodených/chýbajúcich záznamov namiesto jednotlivých značiek, užitočné pre admina pri plánovaní údržby
+- **Mini-mapa polohy** v zbernom formulári – malý neinteraktívny náhľad "si tu" priamo pod GPS indikátorom, zobrazuje sa aj pri použití poslednej známej polohy
+
+### Technické
+- Leaflet sa v zbernom formulári (predvolená obrazovka appky) načíta lenivo (`React.lazy`) až po získaní GPS súradníc - hlavný balík appky vzrástol len o ~1 kB vďaka zdieľanému chunku s mapovou záložkou
+
 ## [1.2.1] – 2026-08-05
 
 ### Opravené
