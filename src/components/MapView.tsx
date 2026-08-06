@@ -31,6 +31,7 @@ import { useTaxonomy } from '../lib/taxonomy';
 import { supabase } from '../lib/supabase';
 import { compressImage } from '../lib/imageCompress';
 import CommentsPanel from './CommentsPanel';
+import MapSizeFix from './MapSizeFix';
 
 // Stred sídliska Vlčince, Žilina - použije sa len ako záloha, ak sa nepodarí zistiť polohu
 const VLCINCE_CENTER: [number, number] = [49.2233, 18.7482];
@@ -770,6 +771,7 @@ export default function MapView({ assets, onAssetDeleted, onAssetUpdated }: Prop
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> prispievatelia'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
+        <MapSizeFix />
 
         {heatmapView ? (
           <HeatmapLayer points={heatPoints} />

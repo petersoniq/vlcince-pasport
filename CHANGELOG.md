@@ -5,6 +5,11 @@ Všetky významné zmeny v tomto projekte sú zaznamenané v tomto súbore.
 Formát vychádza z [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 a projekt sa riadi [Semantic Versioning](https://semver.org/lang/sk/).
 
+## [1.4.1] – 2026-08-05
+
+### Opravené
+- Prvý prechod na záložku Mapa (najmä swipe-om zo Zberu) niekedy zobrazil len bielu obrazovku - klasický Leaflet bug, keď sa mapa vytvorí skôr, než jej kontajner má definitívnu veľkosť. Pridaný `MapSizeFix`, ktorý po vytvorení mapy (aj pri zmene veľkosti kontajnera) vynúti prepočet rozmerov - aplikované na hlavnú mapu aj mini-mapu polohy v zbernom formulári
+
 ## [1.4.0] – 2026-08-05
 
 ### Pridané

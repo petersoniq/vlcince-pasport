@@ -1,5 +1,6 @@
 import { MapContainer, TileLayer, CircleMarker } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
+import MapSizeFix from './MapSizeFix';
 
 interface Props {
   latitude: number;
@@ -27,6 +28,7 @@ export default function LocationMiniMap({ latitude, longitude, accuracyColor }: 
         aria-label="Náhľad aktuálnej polohy na mape"
       >
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        <MapSizeFix />
         <CircleMarker
           center={[latitude, longitude]}
           radius={9}
