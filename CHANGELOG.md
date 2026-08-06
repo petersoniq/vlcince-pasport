@@ -5,6 +5,12 @@ Všetky významné zmeny v tomto projekte sú zaznamenané v tomto súbore.
 Formát vychádza z [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 a projekt sa riadi [Semantic Versioning](https://semver.org/lang/sk/).
 
+## [1.4.0] – 2026-08-05
+
+### Pridané
+- **Swipe navigácia medzi záložkami** – potiahnutím prsta doľava/doprava sa dá prepínať medzi Zber/Mapa/Štatistiky(/Admin), rovnako ako klikaním v spodnej navigácii
+- Gesto zámerne ignoruje ťahanie po mape (Leaflet pan/zoom/drag značky) a horizontálne posúvateľné prvky, aby sa navzájom nekrížili
+
 ## [1.3.1] – 2026-08-05
 
 ### Opravené

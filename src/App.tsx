@@ -15,6 +15,7 @@ import {
 import { useAuth } from './lib/auth';
 import { useTheme } from './lib/theme';
 import { supabase } from './lib/supabase';
+import { useSwipeNavigation } from './lib/useSwipeNavigation';
 import WelcomeScreen from './components/WelcomeScreen';
 import ProfileEditor from './components/ProfileEditor';
 import CollectForm from './components/CollectForm';
@@ -144,6 +145,12 @@ export default function App() {
     () => (isAdmin ? [...NAV_ITEMS, { key: 'admin' as View, label: 'Admin', icon: ShieldCheck }] : NAV_ITEMS),
     [isAdmin]
   );
+
+  const swipeHandlers = useSwipeNavigation<View>({
+    order: navItems.map((item) => item.key),
+    current: view,
+    onNavigate: setView,
+  });
 
   const handleAssetDeleted = (id: string) => {
     setAssets((prev) => prev.filter((a) => a.id !== id));
@@ -283,7 +290,7 @@ export default function App() {
           </>
         )}
 
-        <main id="main-content" tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto">
+        <main id="main-content" tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto" {...swipeHandlers}>
           {view === 'zber' && (
             <div className="mx-auto max-w-md pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:pb-4">
               <CollectForm existingAssets={assets} />

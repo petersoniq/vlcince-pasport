@@ -173,7 +173,7 @@ export default function AdminPanel() {
 
   return (
     <div className="flex flex-col gap-4 p-4">
-      <div className="flex gap-1 overflow-x-auto rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
+      <div data-swipe-ignore className="flex gap-1 overflow-x-auto rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
         <button
           onClick={() => setTab('overview')}
           aria-pressed={tab === 'overview'}
